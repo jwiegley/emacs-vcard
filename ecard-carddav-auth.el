@@ -257,7 +257,7 @@ Returns non-nil if token exists and hasn't expired."
              (< (float-time) expires-at)))
        t))
 
-(cl-defmethod ecard-carddav-auth-refresh ((auth ecard-carddav-auth-oauth2))
+(cl-defmethod ecard-carddav-auth-refresh ((_auth ecard-carddav-auth-oauth2))
   "Refresh OAuth2 AUTH access token using refresh token.
 This is a placeholder for future OAuth2 implementation.
 Signals error if not implemented."

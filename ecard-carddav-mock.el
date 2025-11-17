@@ -160,7 +160,7 @@
   "Currently active mock server, or nil if not mocking.")
 
 (defvar ecard-carddav-mock--original-retrieve nil
-  "Original url-retrieve-synchronously function.")
+  "Original `url-retrieve-synchronously' function.")
 
 ;;; XML helpers
 
@@ -229,7 +229,7 @@ Returns parsed XML s-expression."
 
 ;;; Mock request handlers
 
-(defun ecard-carddav-mock--handle-options (mock path)
+(defun ecard-carddav-mock--handle-options (_mock _path)
   "Handle OPTIONS request for MOCK server at PATH."
   (list :status 200
         :headers '(("DAV" . "1, 2, 3, addressbook")
@@ -238,10 +238,10 @@ Returns parsed XML s-expression."
 
 (defun ecard-carddav-mock--handle-propfind (mock path depth body)
   "Handle PROPFIND request for MOCK server at PATH with DEPTH and BODY."
-  (let ((xml (ecard-carddav-mock--parse-request-body body))
-        (prop-names (when body
-                     (ecard-carddav-mock--extract-prop-names
-                      (ecard-carddav-mock--parse-request-body body)))))
+  (let ((_xml (ecard-carddav-mock--parse-request-body body))
+        (_prop-names (when body
+                       (ecard-carddav-mock--extract-prop-names
+                        (ecard-carddav-mock--parse-request-body body)))))
     (cond
      ;; Principal discovery
      ((string-match-p "/.well-known/carddav" path)
@@ -294,11 +294,11 @@ Returns parsed XML s-expression."
         (home-path (oref mock addressbook-home-path)))
     (if (string= depth "0")
         ;; Just the home collection itself
-        (let ((home-url (concat base-url home-path))
+        (let ((_home-url (concat base-url home-path))
               (response (ecard-carddav-mock--make-response
-                        (concat base-url home-path)
-                        (ecard-carddav-mock--make-propstat
-                         '((resourcetype nil (collection nil)))))))
+                         (concat base-url home-path)
+                         (ecard-carddav-mock--make-propstat
+                          '((resourcetype nil (collection nil)))))))
           (list :status 207
                 :headers '(("Content-Type" . "application/xml; charset=utf-8"))
                 :body (ecard-carddav-mock--make-multistatus response)))
@@ -310,13 +310,13 @@ Returns parsed XML s-expression."
                           (concat base-url path)
                           (ecard-carddav-mock--make-propstat
                            `((resourcetype nil
-                               (collection nil)
-                               (C:addressbook nil))
+                                           (collection nil)
+                                           (C:addressbook nil))
                              (displayname nil ,(oref addressbook display-name))
                              (C:addressbook-description nil ,(oref addressbook description))
                              (CS:getctag nil ,(oref addressbook ctag))
                              (sync-token nil ,(format "http://mock.example.com/ns/sync/%s"
-                                                     (oref addressbook sync-token))))))
+                                                      (oref addressbook sync-token))))))
                          responses))
                  (oref mock addressbooks))
         (list :status 207
@@ -358,7 +358,7 @@ Returns parsed XML s-expression."
                           (concat base-url resource-path)
                           (ecard-carddav-mock--make-propstat
                            `((getetag nil ,(format "\"%s\"" (oref resource etag)))
-                             (getcontenttype nil "text/ecard; charset=utf-8"))))
+                             (getcontenttype nil "text/vcard; charset=utf-8"))))
                          responses))
                  (oref addressbook resources))
         (list :status 207
@@ -374,7 +374,7 @@ Returns parsed XML s-expression."
     (let ((resource (gethash path (oref addressbook resources))))
       (if resource
           (list :status 200
-                :headers `(("Content-Type" . "text/ecard; charset=utf-8")
+                :headers `(("Content-Type" . "text/vcard; charset=utf-8")
                           ("ETag" . ,(format "\"%s\"" (oref resource etag))))
                 :body (oref resource ecard-data))
         (list :status 404
@@ -473,7 +473,7 @@ Returns parsed XML s-expression."
 
 (defun ecard-carddav-mock--handle-multiget (mock path xml)
   "Handle addressbook-multiget REPORT for MOCK server at PATH with XML."
-  (let* ((base-url (oref mock base-url))
+  (let* ((_base-url (oref mock base-url))
          (addressbook (gethash path (oref mock addressbooks)))
          (href-nodes (dom-by-tag xml 'href))
          (hrefs (mapcar #'dom-text href-nodes))
@@ -482,8 +482,8 @@ Returns parsed XML s-expression."
     (dolist (href hrefs)
       ;; Extract path from full URL if needed
       (let* ((resource-path (if (string-prefix-p "http" href)
-                               (url-filename (url-generic-parse-url href))
-                             href))
+                                (url-filename (url-generic-parse-url href))
+                              href))
              (resource (gethash resource-path (oref addressbook resources))))
         (if resource
             (push (ecard-carddav-mock--make-response
@@ -507,7 +507,7 @@ Returns parsed XML s-expression."
   (let* ((base-url (oref mock base-url))
          (addressbook (gethash path (oref mock addressbooks)))
          (sync-token-node (dom-by-tag xml 'sync-token))
-         (old-token (when sync-token-node (dom-text (car sync-token-node))))
+         (_old-token (when sync-token-node (dom-text (car sync-token-node))))
          (current-token (oref addressbook sync-token))
          (responses nil))
 
@@ -523,7 +523,7 @@ Returns parsed XML s-expression."
 
     ;; Add sync-token to response
     (let ((token-element `(sync-token nil
-                           ,(format "http://mock.example.com/ns/sync/%s" current-token))))
+                                      ,(format "http://mock.example.com/ns/sync/%s" current-token))))
       (list :status 207
             :headers '(("Content-Type" . "application/xml; charset=utf-8"))
             :body (ecard-carddav-mock--xml-to-string
@@ -533,7 +533,7 @@ Returns parsed XML s-expression."
                                  ,@(nreverse responses)
                                  ,token-element))))))
 
-(defun ecard-carddav-mock--handle-query (mock path xml)
+(defun ecard-carddav-mock--handle-query (mock path _xml)
   "Handle addressbook-query REPORT for MOCK server at PATH with XML."
   ;; Simplified - just return all resources
   (let* ((base-url (oref mock base-url))
@@ -576,7 +576,8 @@ Returns parsed XML s-expression."
 
 ;;; Mock URL handler
 
-(defun ecard-carddav-mock--url-retrieve-synchronously (url &optional silent inhibit-cookies timeout)
+(defun ecard-carddav-mock--url-retrieve-synchronously
+    (url &optional silent inhibit-cookies timeout)
   "Mock replacement for `url-retrieve-synchronously'."
   (if (and ecard-carddav-mock--active-server
            (string-prefix-p (oref ecard-carddav-mock--active-server base-url) url))
@@ -654,9 +655,12 @@ Returns parsed XML s-expression."
   "Create mock CardDAV server from ARGS.
 
 ARGS is a plist with keys:
-  :base-url STRING - Base URL for mock server (default: https://mock.example.com)
-  :principal-path STRING - Principal path (default: /principals/user/)
-  :addressbook-home-path STRING - Address book home (default: /addressbooks/user/)
+  :base-url STRING - Base URL for mock server
+    (default: https://mock.example.com)
+  :principal-path STRING - Principal path
+    (default: /principals/user/)
+  :addressbook-home-path STRING - Address book home
+    (default: /addressbooks/user/)
 
 Example:
   (ecard-carddav-mock-server-create
@@ -669,17 +673,17 @@ Example:
      :principal-path principal-path
      :addressbook-home-path home-path)))
 
-(defun ecard-carddav-mock-add-addressbook (mock path display-name description)
-  "Add address book to MOCK server at PATH with DISPLAY-NAME and DESCRIPTION."
+(defun ecard-carddav-mock-add-addressbook (mock path disp-name description)
+  "Add address book to MOCK server at PATH with DISP-NAME and DESCRIPTION."
   (puthash path
            (ecard-carddav-mock-addressbook
             :path path
-            :display-name display-name
+            :display-name disp-name
             :description description)
            (oref mock addressbooks)))
 
 (defun ecard-carddav-mock-put-ecard (mock path ecard-obj)
-  "Add or update vCard in MOCK server at PATH with VCARD-OBJ."
+  "Add or update vCard in MOCK server at PATH with ECARD-OBJ."
   (let* ((addressbook (ecard-carddav-mock--find-addressbook-for-path mock path))
          (ecard-data (ecard-serialize ecard-obj))
          (etag (number-to-string (oref mock next-etag))))

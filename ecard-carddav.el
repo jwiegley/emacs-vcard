@@ -32,19 +32,28 @@
 ;;                        :username "user"
 ;;                        :password "secret")))
 ;;
-;;   ;; Discover address books
+;;   ;; Discover address books. Returns list of address books and also updates
+;;   ;; `addressbooks' slot of the server object.
 ;;   (ecard-carddav-discover-addressbooks server)
 ;;
-;;   ;; List contacts in address book
+;;   ;; List contacts in address book. Also updates `resources' slot of the
+;;   ;; `addressbook' object.
 ;;   (ecard-carddav-list-resources addressbook)
 ;;
-;;   ;; Get a contact
-;;   (ecard-carddav-get-ecard addressbook "/contacts/john.vcf")
+;;   ;; Get a contact resource. The string can should either be the `path' or
+;;   ;; `url' field of a resource object. Updates the `ecard' slot of that
+;;   ;; resource with the ecard object, and also the `ecard-data' slot with
+;;   ;; the vCard string.
+;;   (setq resource
+;;         (ecard-carddav-get-resource addressbook "/contacts/john.vcf"))
+;;   (oref resource ecard)                ;; this is the ecard object
 ;;
-;;   ;; Create/update contact
+;;   ;; Create/update contact from the given ecard object.
 ;;   (ecard-carddav-put-ecard addressbook "/contacts/jane.vcf" ecard-obj)
 ;;
-;;   ;; Delete contact
+;;   ;; Delete contact. Note that this does not delete any associated resource
+;;   ;; from the addressbook object, because it is not necessary that you have
+;;   ;; populated the list of resources before using this function.
 ;;   (ecard-carddav-delete-resource addressbook "/contacts/old.vcf")
 
 ;;; Code:
@@ -56,6 +65,7 @@
 (require 'dom)
 (require 'xml)
 (require 'ecard)
+(require 'ecard-compat)
 (require 'ecard-carddav-auth)
 
 ;;; Custom group
@@ -235,7 +245,9 @@ Returns list of matching nodes."
          (prefix-tags (when namespace
                         (cond
                          ((string= namespace ecard-carddav-ns-carddav)
-                          (list (intern (concat "C:" tag-str))))
+                          ;; Different servers use different prefixes: C: or CR:
+                          (list (intern (concat "C:" tag-str))
+                                (intern (concat "CR:" tag-str))))
                          ((string= namespace ecard-carddav-ns-cs)
                           (list (intern (concat "CS:" tag-str))))
                          (t nil)))))
@@ -318,7 +330,10 @@ Returns response buffer."
            headers))
          (url-request-data (when body (encode-coding-string body 'utf-8)))
          (url-http-attempt-keepalives nil)  ; Avoid connection reuse issues
-         (url-show-status nil))
+         (url-show-status nil)
+         ;; Prevent url.el from prompting for credentials interactively
+         ;; when we've already provided Authorization header
+         (url-request-noninteractive t))
     (url-retrieve-synchronously url t nil ecard-carddav-timeout)))
 
 (defun ecard-carddav--request-with-retry (method url auth &optional body content-type headers)
@@ -564,7 +579,7 @@ Updates ADDRESSBOOK resources slot."
                (xml (when (and status (= status 207))
                       (ecard-carddav--parse-xml-response buffer)))
                (resources (when xml
-                           (ecard-carddav--parse-resources xml addressbook url))))
+                            (ecard-carddav--parse-resources xml addressbook url))))
           (oset addressbook resources resources)
           resources)
       (kill-buffer buffer))))
@@ -586,7 +601,7 @@ Returns list of `ecard-carddav-resource' objects."
                                                                               ecard-carddav-ns-dav)))
              (content-type (when content-type-node (dom-text (car content-type-node)))))
         ;; Only include vCard resources, not the addressbook itself
-        (when (and href content-type (string-match-p "text/ecard" content-type))
+        (when (and href content-type (string-match-p "text/vcard" content-type))
           (let* ((url (ecard-carddav--resolve-url href base-url))
                  (etag-node (when prop (ecard-carddav--dom-by-tag-qname (car prop) 'getetag
                                                                           ecard-carddav-ns-dav)))
@@ -602,7 +617,7 @@ Returns list of `ecard-carddav-resource' objects."
                   resources)))))
     (nreverse resources)))
 
-(defun ecard-carddav-get-ecard (addressbook path-or-url)
+(defun ecard-carddav-get-resource (addressbook path-or-url)
   "Get vCard resource at PATH-OR-URL from ADDRESSBOOK.
 PATH-OR-URL can be a full URL or a path relative to addressbook.
 Returns `ecard-carddav-resource' object with vCard data populated.
@@ -619,14 +634,14 @@ Signals error if resource not found."
            ((= status 200)
             (let ((etag (ecard-carddav--get-http-header buffer "ETag"))
                   (ecard-data (with-current-buffer buffer
-                               (goto-char (point-min))
-                               (when (re-search-forward "\r?\n\r?\n" nil t)
-                                 (decode-coding-string
-                                  (buffer-substring (point) (point-max))
-                                  'utf-8)))))
+                                (goto-char (point-min))
+                                (when (re-search-forward "\r?\n\r?\n" nil t)
+                                  (decode-coding-string
+                                   (buffer-substring (point) (point-max))
+                                   'utf-8)))))
               (when etag
                 (setq etag (string-trim etag "\"" "\"")))
-              (let ((ecard-obj (ecard-parse ecard-data)))
+              (let ((ecard-obj (ecard-compat-parse ecard-data)))
                 (ecard-carddav-resource
                  :addressbook addressbook
                  :url url
@@ -657,7 +672,7 @@ Signals conflict error if ETAG doesn't match."
          (headers (when etag
                    (list (cons "If-Match" (format "\"%s\"" etag)))))
          (buffer (ecard-carddav--request-with-retry
-                  "PUT" url auth ecard-data "text/ecard; charset=utf-8" headers)))
+                  "PUT" url auth ecard-data "text/vcard; charset=utf-8" headers)))
     (unwind-protect
         (let ((status (ecard-carddav--get-http-status buffer)))
           (cond
