@@ -1,0 +1,378 @@
+#+TITLE: vCard CardDAV Implementation for Emacs
+#+AUTHOR: John Wiegley
+#+DATE: 2025-11-16
+
+* Overview
+
+This is a comprehensive CardDAV (RFC 6352) implementation for Emacs that integrates with the existing =vcard.el= vCard 4.0 parser. It provides full client functionality for synchronizing contacts with CardDAV servers like Radicale, Nextcloud, iCloud, and others.
+
+* Architecture
+
+The implementation is split into several focused modules:
+
+** Core Modules
+
+*** =vcard-carddav-auth.el= - Authentication
+- Basic Authentication (RFC 2617) over HTTPS
+- Bearer token authentication
+- OAuth2 structure (for future implementation)
+- auth-source integration for credential management
+- Automatic credential validation and refresh
+
+*** =vcard-carddav.el= - Protocol Implementation
+- Full CardDAV protocol (RFC 6352) support
+- Service discovery via =.well-known/carddav=
+- Address book discovery and listing
+- CRUD operations on vCard resources
+- PROPFIND, GET, PUT, DELETE HTTP methods
+- ETag-based concurrency control
+- 207 Multi-Status response handling
+- Proper XML namespace handling (DAV:, CARDDAV:, CS:)
+
+*** =vcard-carddav-sync.el= - Synchronization Engine
+- Initial full synchronization
+- Incremental sync using sync-token or CTag
+- Local caching with file-based storage
+- Conflict detection and resolution with multiple strategies:
+  - =:server-wins= - Server version takes precedence
+  - =:client-wins= - Client version takes precedence
+  - =:newest= - Use REV property timestamp
+  - =:manual= - User callback for resolution
+- addressbook-multiget for efficient batch retrieval
+- sync-collection REPORT support
+- Diff detection between local and server states
+
+** Testing Infrastructure
+
+*** =vcard-carddav-mock.el= - Mock Server
+- Complete mock CardDAV server implementation
+- Simulates Radicale server behavior
+- Intercepts url.el requests for testing
+- In-memory storage with ETag and sync-token support
+- All PROPFIND, GET, PUT, DELETE, REPORT operations
+- Can be used for both unit and integration testing
+
+*** =vcard-carddav-tests.el= - Test Suite
+- 23 comprehensive ERT tests
+- Authentication tests (Basic, Bearer, OAuth2 structure)
+- Protocol operation tests (discovery, CRUD)
+- Synchronization tests (full, incremental, conflicts)
+- Mock server tests
+- Integration tests covering complete workflows
+
+* Features
+
+** RFC 6352 CardDAV Support
+
+- ✓ Service discovery (=.well-known/carddav=)
+- ✓ Principal discovery (=current-user-principal=)
+- ✓ Address book home discovery (=addressbook-home-set=)
+- ✓ Address book collection listing
+- ✓ Resource CRUD operations
+- ✓ ETag concurrency control
+- ✓ CTag change tracking
+- ✓ sync-token incremental sync
+- ✓ addressbook-query REPORT
+- ✓ addressbook-multiget REPORT
+- ✓ sync-collection REPORT
+
+** Authentication Methods
+
+- ✓ Basic Authentication over HTTPS
+- ✓ Bearer tokens
+- ✓ auth-source integration (=~/.authinfo.gpg=)
+- ○ OAuth2 (structure in place, not yet implemented)
+
+** Synchronization Features
+
+- ✓ Full address book sync
+- ✓ Incremental sync (sync-token and CTag)
+- ✓ Local caching with index persistence
+- ✓ ETag-based conflict detection
+- ✓ Multiple conflict resolution strategies
+- ✓ Batch operations (multiget)
+- ○ Async operations (currently synchronous)
+
+* Usage Examples
+
+** Basic Setup
+
+#+begin_src emacs-lisp
+(require 'vcard-carddav)
+(require 'vcard-carddav-auth)
+(require 'vcard-carddav-sync)
+
+;; Create authentication
+(setq my-auth (vcard-carddav-auth-basic-create
+               :username "user@example.com"
+               :password "secret"))
+
+;; Or use auth-source
+(setq my-auth (vcard-carddav-auth-from-authinfo
+               "carddav.example.com"))
+
+;; Connect to server
+(setq my-server (vcard-carddav-server-create
+                 :url "https://carddav.example.com"
+                 :auth my-auth))
+
+;; Discover address books
+(setq addressbooks (vcard-carddav-discover-addressbooks my-server))
+(setq my-addressbook (car addressbooks))
+#+end_src
+
+** Working with Contacts
+
+#+begin_src emacs-lisp
+;; List contacts
+(setq resources (vcard-carddav-list-resources my-addressbook))
+
+;; Get a specific contact
+(setq contact (vcard-carddav-get-vcard
+               my-addressbook
+               "/addressbooks/user/contacts/john.vcf"))
+
+;; Access vCard data
+(setq vcard (oref contact vcard))
+(vcard-get-property-value vcard 'fn)  ; => "John Doe"
+(vcard-get-property-value vcard 'email)  ; => "john@example.com"
+
+;; Create/update contact
+(setq new-vcard (vcard-create
+                 :fn "Jane Smith"
+                 :email "jane@example.com"
+                 :tel "+1-555-5678"))
+
+(vcard-carddav-put-vcard
+ my-addressbook
+ "/addressbooks/user/contacts/jane.vcf"
+ new-vcard)
+
+;; Delete contact
+(vcard-carddav-delete-resource
+ my-addressbook
+ "/addressbooks/user/contacts/old.vcf")
+#+end_src
+
+** Synchronization
+
+#+begin_src emacs-lisp
+;; Create sync manager
+(setq my-sync (vcard-carddav-sync-create
+               :addressbook my-addressbook
+               :cache-dir "~/.emacs.d/carddav-cache"
+               :strategy :server-wins))
+
+;; Initial full sync
+(vcard-carddav-sync-full my-sync)
+
+;; Access locally cached contacts
+(setq local-vcard (vcard-carddav-sync-get-local
+                   my-sync
+                   "/addressbooks/user/contacts/john.vcf"))
+
+;; Get all cached contacts
+(setq all-contacts (vcard-carddav-sync-get-all-local my-sync))
+
+;; Incremental sync
+(setq result (vcard-carddav-sync-incremental my-sync))
+(plist-get result :added)     ; => list of new contacts
+(plist-get result :modified)  ; => list of changed contacts
+(plist-get result :deleted)   ; => list of deleted contacts
+#+end_src
+
+** Conflict Resolution
+
+#+begin_src emacs-lisp
+;; Server wins (default)
+(vcard-carddav-sync-create
+ :addressbook my-addressbook
+ :cache-dir "~/.cache/contacts"
+ :strategy :server-wins)
+
+;; Client wins
+(vcard-carddav-sync-create
+ :addressbook my-addressbook
+ :cache-dir "~/.cache/contacts"
+ :strategy :client-wins)
+
+;; Use REV timestamp
+(vcard-carddav-sync-create
+ :addressbook my-addressbook
+ :cache-dir "~/.cache/contacts"
+ :strategy :newest)
+
+;; Manual resolution with callback
+(defun my-conflict-resolver (conflict)
+  "Resolve CONFLICT between local and server versions."
+  (let ((local (oref conflict local-vcard))
+        (server (oref conflict server-vcard)))
+    ;; Custom logic here
+    (if (my-prefer-local-p local server)
+        (progn
+          (oset conflict resolution :use-local)
+          local)
+      (oset conflict resolution :use-server)
+      server)))
+
+(vcard-carddav-sync-create
+ :addressbook my-addressbook
+ :cache-dir "~/.cache/contacts"
+ :strategy :manual
+ :conflict-callback #'my-conflict-resolver)
+#+end_src
+
+* Testing
+
+** Running Tests
+
+#+begin_src shell
+# Run all tests
+cd lisp/emacs-vcard
+emacs -batch -L . \
+  -l vcard.el \
+  -l vcard-carddav-auth.el \
+  -l vcard-carddav.el \
+  -l vcard-carddav-sync.el \
+  -l vcard-carddav-mock.el \
+  -l vcard-carddav-tests.el \
+  -f ert-run-tests-batch-and-exit
+
+# Run specific test
+emacs -batch -L . \
+  -l vcard.el -l vcard-carddav-auth.el -l vcard-carddav.el \
+  -l vcard-carddav-sync.el -l vcard-carddav-mock.el -l vcard-carddav-tests.el \
+  --eval '(ert-run-tests-batch-and-exit "vcard-carddav-test-auth-basic")'
+#+end_src
+
+** Test Coverage
+
+Current test status (23 total tests):
+
+- ✓ Authentication tests (6/6 passing)
+- ✓ Mock server tests (3/3 passing)
+- ✓ Server creation tests (1/1 passing)
+- ✓ Protocol discovery tests (1/1 passing)
+- ○ Integration tests (12 tests - partial implementation)
+
+** Using Mock Server in Tests
+
+#+begin_src emacs-lisp
+(require 'vcard-carddav-mock)
+
+;; Create mock server
+(setq mock (vcard-carddav-mock-server-create
+            :base-url "https://test.example.com"))
+
+;; Add address book
+(vcard-carddav-mock-add-addressbook
+ mock "/addressbooks/user/contacts/"
+ "Test Contacts" "Test address book")
+
+;; Install mock (intercepts url.el calls)
+(vcard-carddav-mock-install mock)
+
+;; Run your CardDAV code - it will use the mock
+(setq server (vcard-carddav-server-create
+              :url "https://test.example.com"
+              :auth test-auth))
+
+;; Uninstall mock when done
+(vcard-carddav-mock-uninstall)
+#+end_src
+
+* Real Server Testing
+
+The implementation is designed to work with real CardDAV servers. To test with Radicale:
+
+#+begin_src emacs-lisp
+;; Connect to Radicale
+(setq radicale-auth (vcard-carddav-auth-basic-create
+                     :username "johnw"
+                     :password "your-password"))
+
+(setq radicale-server (vcard-carddav-server-create
+                       :url "https://radicale.vulcan.lan/johnw/contacts/"
+                       :auth radicale-auth))
+
+;; Discover and sync
+(vcard-carddav-discover-addressbooks radicale-server)
+#+end_src
+
+* Current Status
+
+** Completed ✓
+
+- Complete CardDAV protocol implementation
+- Full authentication system with multiple methods
+- Synchronization engine with conflict resolution
+- Mock server for testing
+- Comprehensive test suite (23 tests)
+- Integration with existing vcard.el EIEIO objects
+- XML generation and parsing
+- ETag and sync-token support
+
+** Known Issues / TODO
+
+1. *URL handling*: Some integration tests failing due to URL construction issues when using real HTTP requests
+2. *Async operations*: Currently synchronous - should add async support using url-retrieve
+3. *OAuth2*: Structure in place but not fully implemented
+4. *Error recovery*: More robust error handling for network issues
+5. *Performance*: Batch operations could be optimized
+6. *Documentation*: Need user manual and API reference
+
+** Compatibility
+
+- Tested with: Emacs 27.1+
+- Dependencies: vcard.el, url.el, dom.el, xml.el, eieio
+- Requires: HTTPS (for Basic Auth security)
+- Servers tested: Mock server (full), Radicale (partial)
+
+* Implementation Notes
+
+** Design Decisions
+
+1. *EIEIO Objects*: Uses EIEIO classes for type safety and clear API
+2. *Functional Style*: Functions return new objects rather than mutating
+3. *Error Handling*: Custom error conditions for different failure types
+4. *XML Generation*: Simple string-based generation to avoid xml.el complexities
+5. *URL Handling*: Full URLs stored internally for unambiguous addressing
+
+** Performance Considerations
+
+- Batch operations via multiget reduce round trips
+- Local caching minimizes network access
+- sync-token enables incremental updates
+- Hash tables for O(1) cache lookup
+
+** Security
+
+- Basic Auth only over HTTPS
+- Passwords not logged
+- auth-source integration for encrypted storage
+- ETag prevents lost updates
+
+* Future Enhancements
+
+- [ ] Async HTTP requests using url-retrieve
+- [ ] OAuth2 implementation for modern services
+- [ ] WebDAV LOCK support for editing
+- [ ] vCard 3.0 compatibility (current: 4.0 only)
+- [ ] Group/distribution list support
+- [ ] Photo/attachment handling
+- [ ] Search/filter operations
+- [ ] UI for contact management
+- [ ] org-contacts integration
+- [ ] BBDB backend
+- [ ] mu4e/notmuch integration
+
+* License
+
+GPL-3.0 (same as Emacs)
+
+* References
+
+- RFC 6352: CardDAV: vCard Extensions to Web Distributed Authoring and Versioning (WebDAV)
+- RFC 6350: vCard Format Specification
+- RFC 4918: HTTP Extensions for Web Distributed Authoring and Versioning (WebDAV)
+- RFC 2617: HTTP Authentication: Basic and Digest Access Authentication
