@@ -25,12 +25,20 @@
 ;;
 ;; Example usage:
 ;;
-;;   ;; Connect to CardDAV server
+;;   ;; Connect to CardDAV server with static auth
 ;;   (setq server (ecard-carddav-server-create
 ;;                 :url "https://carddav.example.com"
 ;;                 :auth (ecard-carddav-auth-basic-create
 ;;                        :username "user"
 ;;                        :password "secret")))
+;;
+;;   ;; Or use a function for dynamic auth (e.g., prompting user)
+;;   (setq server (ecard-carddav-server-create
+;;                 :url "https://carddav.example.com"
+;;                 :auth (lambda ()
+;;                         (ecard-carddav-auth-basic-create
+;;                          :username (read-string "Username: ")
+;;                          :password (read-passwd "Password: ")))))
 ;;
 ;;   ;; Discover address books. Returns list of address books and also updates
 ;;   ;; `addressbooks' slot of the server object.
@@ -114,8 +122,11 @@
    (auth
     :initarg :auth
     :initform nil
-    :type (or null ecard-carddav-auth)
-    :documentation "Authentication credentials object.")
+    :type (or null ecard-carddav-auth function)
+    :documentation "Authentication credentials object or function that returns one.
+If a function, it will be called with no arguments whenever authentication
+is needed, allowing for dynamic credential retrieval (e.g., from auth-source,
+password managers, or OAuth token refresh).")
    (principal-url
     :initarg :principal-url
     :initform nil
@@ -214,6 +225,17 @@
 
 (defconst ecard-carddav-ns-cs "http://calendarserver.org/ns/"
   "CalendarServer namespace URI.")
+
+;;; Helper functions
+
+(defun ecard-carddav--get-auth (server)
+  "Get authentication object from SERVER, resolving functions if needed.
+If the :auth slot contains a function, call it to get the auth object.
+Otherwise, return the auth object directly."
+  (let ((auth (oref server auth)))
+    (if (functionp auth)
+        (funcall auth)
+      auth)))
 
 ;;; XML generation helpers
 
@@ -318,23 +340,29 @@ Returns header value or nil."
 BODY is optional request body string.
 CONTENT-TYPE is optional Content-Type header.
 HEADERS is optional alist of additional headers.
-Returns response buffer."
-  (let* ((url-request-method method)
-         (url-request-extra-headers
-          (append
-           (list (cons "User-Agent" ecard-carddav-user-agent))
-           (when auth
-             (list (cons "Authorization" (ecard-carddav-auth-get-header auth))))
-           (when content-type
-             (list (cons "Content-Type" content-type)))
-           headers))
-         (url-request-data (when body (encode-coding-string body 'utf-8)))
-         (url-http-attempt-keepalives nil)  ; Avoid connection reuse issues
-         (url-show-status nil)
-         ;; Prevent url.el from prompting for credentials interactively
-         ;; when we've already provided Authorization header
-         (url-request-noninteractive t))
-    (url-retrieve-synchronously url t nil ecard-carddav-timeout)))
+Returns response buffer.
+
+Uses with-timeout to ensure request doesn't hang indefinitely,
+even if DNS, TCP, or TLS operations block outside url.el's control."
+  (with-timeout (ecard-carddav-timeout
+                 (signal 'ecard-carddav-http-error
+                         (list "Request timeout after" ecard-carddav-timeout "seconds" url)))
+    (let* ((url-request-method method)
+           (url-request-extra-headers
+            (append
+             (list (cons "User-Agent" ecard-carddav-user-agent))
+             (when auth
+               (list (cons "Authorization" (ecard-carddav-auth-get-header auth))))
+             (when content-type
+               (list (cons "Content-Type" content-type)))
+             headers))
+           (url-request-data (when body (encode-coding-string body 'utf-8)))
+           (url-http-attempt-keepalives nil)  ; Avoid connection reuse issues
+           (url-show-status nil)
+           ;; Prevent url.el from prompting for credentials interactively
+           ;; when we've already provided Authorization header
+           (url-request-noninteractive t))
+      (url-retrieve-synchronously url t nil ecard-carddav-timeout))))
 
 (defun ecard-carddav--request-with-retry (method url auth &optional body content-type headers)
   "Make HTTP request with automatic retry on failure.
@@ -377,7 +405,7 @@ Returns response buffer or signals error."
 Updates SERVER object with principal-url.
 Returns SERVER."
   (let* ((url (oref server url))
-         (auth (oref server auth))
+         (auth (ecard-carddav--get-auth server))
          (well-known-url (concat url "/.well-known/carddav"))
          (buffer (ecard-carddav--request-with-retry "PROPFIND" well-known-url auth
                                                      (ecard-carddav--propfind-body
@@ -423,7 +451,7 @@ Returns SERVER."
   (unless (oref server principal-url)
     (ecard-carddav-discover-principal server))
   (let* ((principal-url (oref server principal-url))
-         (auth (oref server auth)))
+         (auth (ecard-carddav--get-auth server)))
     (unless principal-url
       (signal 'ecard-carddav-error '("Principal URL not set after discovery")))
     (let ((buffer (ecard-carddav--request-with-retry
@@ -471,7 +499,7 @@ Returns list of `ecard-carddav-addressbook' objects."
   (unless (oref server addressbook-home-url)
     (ecard-carddav-discover-addressbook-home server))
   (let* ((home-url (oref server addressbook-home-url))
-         (auth (oref server auth)))
+         (auth (ecard-carddav--get-auth server)))
     (unless home-url
       (signal 'ecard-carddav-error '("Addressbook home URL not set after discovery")))
     (let ((buffer (ecard-carddav--request-with-retry
@@ -565,7 +593,7 @@ Returns absolute URL string."
 Returns list of `ecard-carddav-resource' objects with ETags but no vCard data.
 Updates ADDRESSBOOK resources slot."
   (let* ((server (oref addressbook server))
-         (auth (oref server auth))
+         (auth (ecard-carddav--get-auth server))
          (url (oref addressbook url))
          (buffer (ecard-carddav--request-with-retry
                   "PROPFIND" url auth
@@ -630,7 +658,7 @@ PATH-OR-URL can be a full URL or a path relative to addressbook.
 Returns `ecard-carddav-resource' object with vCard data populated.
 Signals error if resource not found."
   (let* ((server (oref addressbook server))
-         (auth (oref server auth))
+         (auth (ecard-carddav--get-auth server))
          (url (if (string-prefix-p "http" path-or-url)
                   path-or-url
                 (ecard-carddav--resolve-url path-or-url (oref addressbook url))))
@@ -671,7 +699,7 @@ ETAG is optional - if provided, uses If-Match for concurrency control.
 Returns updated `ecard-carddav-resource' object.
 Signals conflict error if ETAG doesn't match."
   (let* ((server (oref addressbook server))
-         (auth (oref server auth))
+         (auth (ecard-carddav--get-auth server))
          (url (if (string-prefix-p "http" path-or-url)
                   path-or-url
                 (ecard-carddav--resolve-url path-or-url (oref addressbook url))))
@@ -708,7 +736,7 @@ ETAG is optional - if provided, uses If-Match for concurrency control.
 Returns t on success.
 Signals conflict error if ETAG doesn't match."
   (let* ((server (oref addressbook server))
-         (auth (oref server auth))
+         (auth (ecard-carddav--get-auth server))
          (url (if (string-prefix-p "http" path-or-url)
                   path-or-url
                 (ecard-carddav--resolve-url path-or-url (oref addressbook url))))
@@ -746,7 +774,7 @@ individual GET requests."
     (signal 'ecard-carddav-error '("No resource paths provided")))
 
   (let* ((server (oref addressbook server))
-         (auth (oref server auth))
+         (auth (ecard-carddav--get-auth server))
          (url (oref addressbook url))
          (body (ecard-carddav--multiget-body resource-paths))
          (buffer (ecard-carddav--request-with-retry
@@ -852,21 +880,42 @@ Returns list of `ecard-carddav-resource' objects with ecard data populated."
 
 ARGS is a plist with keys:
   :url STRING - Base URL of CardDAV server (required)
-  :auth AUTH-OBJ - Authentication object (required)
+  :auth AUTH-OBJ-OR-FUNCTION - Authentication object or function (required)
 
-Example:
+The :auth parameter can be either:
+  - An ecard-carddav-auth object (created with ecard-carddav-auth-*-create)
+  - A function that returns an ecard-carddav-auth object when called
+
+Using a function allows for dynamic credential retrieval, such as:
+  - Fetching from auth-source
+  - OAuth token refresh
+  - Password manager integration
+  - Prompting user for credentials
+
+Examples:
+  ;; Static auth object
   (ecard-carddav-server-create
    :url \"https://carddav.example.com\"
    :auth (ecard-carddav-auth-basic-create
           :username \"user\"
-          :password \"secret\"))"
+          :password \"secret\"))
+
+  ;; Dynamic auth function
+  (ecard-carddav-server-create
+   :url \"https://carddav.example.com\"
+   :auth (lambda ()
+           (ecard-carddav-auth-basic-create
+            :username (read-string \"Username: \")
+            :password (read-passwd \"Password: \"))))"
   (let ((url (plist-get args :url))
         (auth (plist-get args :auth)))
     (unless url
       (signal 'ecard-carddav-error '("Server URL required")))
     (unless auth
       (signal 'ecard-carddav-error '("Authentication required")))
-    (ecard-carddav-auth-ensure-valid auth)
+    ;; Validate auth - if it's a function, call it once to validate
+    (let ((auth-obj (if (functionp auth) (funcall auth) auth)))
+      (ecard-carddav-auth-ensure-valid auth-obj))
     (ecard-carddav-server
      :url url
      :auth auth)))

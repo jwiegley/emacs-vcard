@@ -19,7 +19,7 @@
 ;; - Contact detail buffer (*CardDAV Contact: <name>*)
 ;;
 ;; Entry point:
-;;   M-x ecard-display-servers
+;;   M-x ecard-display
 ;;
 ;; Server configuration:
 ;;   (setq ecard-display-servers
@@ -104,15 +104,15 @@ Setting to nil disables pagination and loads all contacts at once."
                  (const :tag "Load all contacts at once" nil))
   :group 'ecard-display)
 
-(defcustom ecard-display-fetch-names-immediately nil
+(defcustom ecard-display-fetch-names-immediately t
   "Whether to fetch real contact names immediately when opening contacts buffer.
 
-If nil (default), displays filename-based names instantly for immediate
-navigation, allowing users to browse the contact list without delay.
-Real names can be fetched later with `ecard-display-contacts-refresh-names'.
+If t (default), fetches real names using multiget before displaying, showing
+accurate names immediately (may be slow for large addressbooks).
 
-If t, fetches real names using multiget before displaying (may be slow
-for large addressbooks, but shows accurate names immediately)."
+If nil, displays filename-based names instantly for immediate navigation,
+allowing users to browse the contact list without delay. Real names can be
+fetched later with `ecard-display-contacts-refresh-names'."
   :type 'boolean
   :group 'ecard-display)
 
@@ -163,7 +163,7 @@ for large addressbooks, but shows accurate names immediately)."
   (tabulated-list-init-header))
 
 ;;;###autoload
-(defun ecard-display-servers ()
+(defun ecard-display ()
   "Display CardDAV servers in a browsable interface."
   (interactive)
   (let ((buffer (get-buffer-create "*CardDAV Servers*")))
@@ -172,7 +172,7 @@ for large addressbooks, but shows accurate names immediately)."
       (ecard-display-servers-refresh))
     (switch-to-buffer buffer)))
 
-(defun ecard-display-servers-refresh ()
+(defun ecard-display-refresh ()
   "Refresh the server list."
   (interactive)
   (let ((entries nil))
@@ -186,6 +186,9 @@ for large addressbooks, but shows accurate names immediately)."
               entries)))
     (setq tabulated-list-entries (nreverse entries))
     (tabulated-list-print t)))
+
+(defalias 'ecard-display-servers-refresh 'ecard-display-refresh
+  "Alias for `ecard-display-refresh'.")
 
 (defun ecard-display-servers-open ()
   "Open addressbooks for the server at point."
@@ -271,22 +274,12 @@ for large addressbooks, but shows accurate names immediately)."
 
 (defun ecard-display-addressbooks--populate (server)
   "Populate addressbook list for SERVER.
-Loads resource counts for all addressbooks to display accurate contact counts."
+Shows contact counts if resources are already loaded, otherwise shows '?'.
+Resources will be loaded on-demand when opening an addressbook."
   (let ((addressbooks (oref server addressbooks))
         (entries nil))
-    ;; Load resources for each addressbook to get counts
-    (message "Loading addressbook details...")
-    (dolist (addressbook addressbooks)
-      (unless (oref addressbook resources)
-        (condition-case err
-            (progn
-              (message "Loading contacts for %s..." (oref addressbook display-name))
-              (ecard-carddav-list-resources addressbook))
-          (error
-           (message "Failed to load resources for %s: %s"
-                    (oref addressbook display-name)
-                    (error-message-string err))))))
-    ;; Now populate the table with actual counts
+    ;; Populate table without loading resources - much faster
+    ;; Resources will be loaded when user opens the addressbook
     (dolist (addressbook addressbooks)
       (let* ((name (or (oref addressbook display-name) "Unnamed"))
              (desc (or (oref addressbook description) ""))
@@ -321,7 +314,9 @@ Loads resource counts for all addressbooks to display accurate contact counts."
     (message "Loading contacts...")
     (condition-case err
         (progn
-          (ecard-carddav-list-resources addressbook)
+          ;; Ensure resources are loaded (paths and ETags)
+          (unless (oref addressbook resources)
+            (ecard-carddav-list-resources addressbook))
           (ecard-display-contacts addressbook))
       (error
        (message "Failed to load contacts: %s" (error-message-string err))))))
@@ -329,7 +324,7 @@ Loads resource counts for all addressbooks to display accurate contact counts."
 (defun ecard-display-addressbooks-back ()
   "Return to server list."
   (interactive)
-  (ecard-display-servers))
+  (ecard-display))
 
 ;;; Contacts Buffer
 
@@ -369,12 +364,17 @@ to fetch real contact names for the current page.
   (tabulated-list-init-header))
 
 (defun ecard-display-contacts (addressbook)
-  "Display contacts for ADDRESSBOOK."
+  "Display contacts for ADDRESSBOOK.
+Always refreshes the contact list when entering the buffer, ensuring names
+are fetched if `ecard-display-fetch-names-immediately' is enabled."
   (let* ((name (or (oref addressbook display-name) "Unnamed"))
          (buffer (get-buffer-create (format "*CardDAV Contacts: %s*" name))))
     (with-current-buffer buffer
-      (ecard-display-contacts-mode)
+      (unless (eq major-mode 'ecard-display-contacts-mode)
+        (ecard-display-contacts-mode))
       (setq ecard-display--addressbook addressbook)
+      ;; Always populate, even if buffer existed - this ensures names
+      ;; are fetched when ecard-display-fetch-names-immediately is t
       (ecard-display-contacts--populate addressbook))
     (switch-to-buffer buffer)))
 
@@ -445,15 +445,17 @@ current page in a single HTTP request."
                         (oset original etag (oref fetched etag))))))
                 (message "Fetched names in %.2f seconds" (- (float-time) start-time)))
             (error
-             (message "Failed to fetch names for %s: %s"
-                      page-info
-                      (error-message-string err))))))
+             (let ((error-msg (format "Failed to fetch contact details (%s): %s"
+                                      page-info
+                                      (error-message-string err))))
+               (message "%s" error-msg)
+               (display-warning 'ecard-display error-msg :warning))))))
 
-      ;; Populate table with ALL resources, showing fetched data for current page
-      ;; and filename-based names for unfetched resources
+      ;; Populate table with ONLY current page resources to ensure consistent display
+      ;; All displayed contacts will have real data (if multiget succeeded)
       (let ((entries nil)
             (start-time (float-time)))
-        (dolist (resource all-resources)
+        (dolist (resource page-resources)
           (let* ((ecard-obj (oref resource ecard))
                  (fn (if ecard-obj
                          (ecard-display--get-fn ecard-obj)
@@ -467,8 +469,10 @@ current page in a single HTTP request."
             (push (list resource (vector fn email tel)) entries)))
         (setq tabulated-list-entries (nreverse entries))
         (tabulated-list-print t)
-        (let ((display-time (- (float-time) start-time)))
-          (message "Displayed %s in %.2f seconds" page-info display-time))))))
+        (let ((display-time (- (float-time) start-time))
+              (total-displayed (length entries)))
+          (message "Displayed %d contacts (%s) in %.2f seconds"
+                   total-displayed page-info display-time))))))
 
 (defun ecard-display--get-fn (ecard-obj)
   "Get formatted name from ECARD-OBJ."
@@ -673,7 +677,7 @@ Fetches full vCard data if not already loaded."
       (when server
         ;; We need the config to recreate the buffer name
         ;; For now, just go back to servers list
-        (ecard-display-servers)))))
+        (ecard-display)))))
 
 ;;; Contact Detail Buffer
 
