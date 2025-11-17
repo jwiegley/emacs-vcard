@@ -207,20 +207,20 @@
 
         ;; PUT vCard
         (let ((resource (ecard-carddav-put-ecard
-                        ab
-                        "/addressbooks/user/contacts/john.vcf"
-                        ecard)))
+                         ab
+                         "/addressbooks/user/contacts/john.vcf"
+                         ecard)))
           (should (ecard-carddav-resource-p resource))
           (should (oref resource etag)))
 
         ;; GET vCard
-        (let ((resource (ecard-carddav-get-ecard
-                        ab
-                        "/addressbooks/user/contacts/john.vcf")))
+        (let ((resource (ecard-carddav-get-resource
+                         ab
+                         "/addressbooks/user/contacts/john.vcf")))
           (should (ecard-carddav-resource-p resource))
           (should (ecard-p (oref resource ecard)))
           (should (string= (ecard-get-property-value (oref resource ecard) 'fn)
-                          "John Doe"))))
+                           "John Doe"))))
     (ecard-carddav-test--teardown)))
 
 (ert-deftest ecard-carddav-test-list-resources ()
@@ -333,11 +333,11 @@
 
         ;; Delete it
         (should (ecard-carddav-delete-resource
-                ab "/addressbooks/user/contacts/john.vcf"))
+                 ab "/addressbooks/user/contacts/john.vcf"))
 
         ;; Verify it's gone
         (should-error
-         (ecard-carddav-get-ecard
+         (ecard-carddav-get-resource
           ab "/addressbooks/user/contacts/john.vcf")
          :type 'ecard-carddav-not-found-error))
     (ecard-carddav-test--teardown)))
@@ -507,6 +507,51 @@
         (should (gethash "/test/ab/test.vcf" (oref ab resources)))))))
 
 ;;; Integration tests
+
+(ert-deftest ecard-carddav-test-list-resources-excludes-collection ()
+  "Verify that addressbook collection is not included in resource list.
+Radicale returns text/vcard content-type for both the collection
+and individual resources, so we must explicitly filter out the collection."
+  (ecard-carddav-test--setup)
+  (unwind-protect
+      (let* ((auth (ecard-carddav-auth-basic-create
+                    :username "user"
+                    :password "pass"))
+             (server (ecard-carddav-server-create
+                      :url "https://test.example.com"
+                      :auth auth))
+             (addressbooks (ecard-carddav-discover-addressbooks server))
+             (ab (car addressbooks))
+             (ab-url (oref ab url)))
+
+        ;; Add some vCards to the addressbook
+        (ecard-carddav-put-ecard
+         ab "/addressbooks/user/contacts/alice.vcf"
+         (ecard-carddav-test--create-test-ecard "Alice Johnson"))
+        (ecard-carddav-put-ecard
+         ab "/addressbooks/user/contacts/bob.vcf"
+         (ecard-carddav-test--create-test-ecard "Bob Williams"))
+        (ecard-carddav-put-ecard
+         ab "/addressbooks/user/contacts/charlie.vcf"
+         (ecard-carddav-test--create-test-ecard "Charlie Brown"))
+
+        ;; List resources
+        (let ((resources (ecard-carddav-list-resources ab)))
+          ;; Should have exactly 3 resources (not 4)
+          (should (= (length resources) 3))
+
+          ;; Verify none of the resources have the addressbook URL
+          (dolist (resource resources)
+            (should-not (string= (oref resource url) ab-url)))
+
+          ;; Verify all expected vCard resources are present
+          (let ((paths (mapcar (lambda (r) (oref r path)) resources)))
+            (should (member "/addressbooks/user/contacts/alice.vcf" paths))
+            (should (member "/addressbooks/user/contacts/bob.vcf" paths))
+            (should (member "/addressbooks/user/contacts/charlie.vcf" paths))
+            ;; Ensure the collection path is NOT in the list
+            (should-not (member "/addressbooks/user/contacts/" paths)))))
+    (ecard-carddav-test--teardown)))
 
 (ert-deftest ecard-carddav-test-complete-workflow ()
   "Test complete CardDAV workflow end-to-end."

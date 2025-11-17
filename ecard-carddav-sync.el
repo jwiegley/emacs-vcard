@@ -275,7 +275,7 @@ Returns list of updated paths."
             nil
           ;; Need to fetch
           (condition-case err
-              (let ((full-resource (ecard-carddav-get-ecard addressbook path)))
+              (let ((full-resource (ecard-carddav-get-resource addressbook path)))
                 (ecard-carddav-sync--save-to-cache
                  sync path
                  (oref full-resource ecard)

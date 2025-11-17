@@ -347,12 +347,16 @@ Returns parsed XML s-expression."
                 :body (ecard-carddav-mock--make-multistatus response)))
 
       ;; List all resources
+      ;; IMPORTANT: Mimic Radicale behavior - include text/vcard content-type
+      ;; for the collection itself, not just individual resources. This ensures
+      ;; that ecard-carddav-list-resources properly filters out the collection.
       (let ((responses (list (ecard-carddav-mock--make-response
                              (concat base-url path)
                              (ecard-carddav-mock--make-propstat
                               `((resourcetype nil
                                   (collection nil)
-                                  (C:addressbook nil))))))))
+                                  (C:addressbook nil))
+                                (getcontenttype nil "text/vcard; charset=utf-8")))))))
         (maphash (lambda (resource-path resource)
                    (push (ecard-carddav-mock--make-response
                           (concat base-url resource-path)
