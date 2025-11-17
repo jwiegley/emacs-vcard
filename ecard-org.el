@@ -198,8 +198,15 @@ Returns the first matching Org property name from mappings."
 
 (defun ecard-org--format-ecard-value (value ecard-slot)
   "Format VALUE for vCard property VCARD-SLOT.
-Handles structured properties (lists) and text-list properties."
+Handles structured properties (lists) and text-list properties.
+For UID properties, strips the `urn:uuid:' prefix if present."
   (cond
+   ;; UID - strip urn:uuid: prefix for Org ID property
+   ((eq ecard-slot 'uid)
+    (let ((str (if (stringp value) value (format "%s" value))))
+      (if (string-prefix-p "urn:uuid:" str)
+          (substring str 9)  ; Remove "urn:uuid:" prefix
+        str)))
    ;; List values - structured properties use semicolon
    ((and (listp value)
          (member ecard-slot '(org adr n)))
@@ -213,8 +220,14 @@ Handles structured properties (lists) and text-list properties."
 
 (defun ecard-org--parse-org-value (value ecard-slot)
   "Parse Org property VALUE for VCARD-SLOT.
-Converts strings to appropriate format (list for structured properties)."
+Converts strings to appropriate format (list for structured properties).
+For UID properties, adds `urn:uuid:' prefix if not already present."
   (cond
+   ;; UID - add urn:uuid: prefix if not present
+   ((eq ecard-slot 'uid)
+    (if (string-prefix-p "urn:uuid:" value)
+        value
+      (concat "urn:uuid:" value)))
    ;; Structured properties (semicolon-separated)
    ((member ecard-slot '(org adr n))
     (split-string value ";" t))
