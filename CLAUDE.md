@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Complete vCard 4.0 (RFC 6350) parser and serializer library for Emacs using EIEIO object-oriented design. This is a standalone library with no external dependencies, providing a programmatic API for vCard manipulation.
 
+Review the file @VCARD_ANALYSIS.md to understand the architecture and design of this package.
+
 ## Key Commands
 
 ```bash
