@@ -759,6 +759,84 @@ Signals conflict error if ETAG doesn't match."
                     (list "Failed to delete resource" status url)))))
       (kill-buffer buffer))))
 
+;;;###autoload
+(defun ecard-carddav-change-uid (addressbook old-path-or-url new-uid)
+  "Change the UID of a vCard resource from OLD-PATH-OR-URL to NEW-UID.
+ADDRESSBOOK is the addressbook object containing the resource.
+OLD-PATH-OR-URL is the current path or URL of the resource.
+NEW-UID is the new UID value to assign.
+
+This operation:
+1. Fetches the current vCard from the server
+2. Modifies its UID to NEW-UID
+3. Deletes the old vCard resource
+4. Creates a new vCard resource with the new UID
+
+Returns the new `ecard-carddav-resource' object with updated UID.
+
+Note: This is effectively a delete + create operation. The new resource
+path will be derived from the NEW-UID (typically NEWUID.vcf).
+
+Signals error if:
+- The old resource is not found
+- The new UID already exists
+- Network or permission errors occur
+
+Example:
+  (ecard-carddav-change-uid addressbook
+                            \"/contacts/old.vcf\"
+                            \"urn:uuid:new-uuid-here\")"
+  (interactive
+   (let* ((addressbook (if (and (boundp 'ecard-display--addressbook)
+                                ecard-display--addressbook)
+                          ecard-display--addressbook
+                        (error "No addressbook context available")))
+          (old-path (read-string "Old resource path or URL: "))
+          (new-uid (read-string "New UID: ")))
+     (list addressbook old-path new-uid)))
+
+  ;; Step 1: Fetch the current resource
+  (message "Fetching current vCard...")
+  (let* ((resource (ecard-carddav-get-resource addressbook old-path-or-url))
+         (ecard-obj (oref resource ecard))
+         (old-etag (oref resource etag))
+         (old-url (oref resource url)))
+
+    ;; Step 2: Modify the UID
+    (message "Modifying UID to %s..." new-uid)
+    (ecard-set-property ecard-obj 'uid new-uid)
+
+    ;; Step 3: Generate new path based on new UID
+    ;; Use a sanitized version of the UID for the filename
+    (let* ((sanitized-uid (replace-regexp-in-string "[^a-zA-Z0-9-]" "-" new-uid))
+           (new-path (concat sanitized-uid ".vcf"))
+           (new-resource nil))
+
+      ;; Step 4: Create the new vCard (this will fail if UID already exists)
+      (message "Creating new vCard at %s..." new-path)
+      (condition-case err
+          (setq new-resource (ecard-carddav-put-ecard addressbook new-path ecard-obj))
+        (error
+         (message "Failed to create new vCard: %s" (error-message-string err))
+         (signal (car err) (cdr err))))
+
+      ;; Step 5: Delete the old vCard (only if creation succeeded)
+      (message "Deleting old vCard at %s..." old-path-or-url)
+      (condition-case err
+          (ecard-carddav-delete-resource addressbook old-url old-etag)
+        (error
+         ;; If deletion fails, try to clean up the new resource
+         (message "Warning: Failed to delete old vCard: %s" (error-message-string err))
+         (message "Attempting to delete newly created vCard to rollback...")
+         (ignore-errors
+           (ecard-carddav-delete-resource addressbook (oref new-resource url)))
+         (signal (car err) (cdr err))))
+
+      (message "UID changed successfully from %s to %s"
+               (or (ecard-get-property-value ecard-obj 'uid) "unknown")
+               new-uid)
+      new-resource)))
+
 ;;; addressbook-multiget REPORT
 
 (defun ecard-carddav-multiget-resources (addressbook resource-paths)

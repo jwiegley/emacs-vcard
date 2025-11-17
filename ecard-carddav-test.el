@@ -680,5 +680,112 @@ able to list resources by assuming all child items are vCards."
                   (should (member "Charlie Brown" names))))))))
     (ecard-carddav-test--teardown)))
 
+;;; UID Change Operation Tests
+
+(ert-deftest ecard-carddav-test-change-uid-success ()
+  "Test successful UID change operation."
+  (unwind-protect
+      (progn
+        (ecard-carddav-test--setup)
+        (let* ((server (ecard-carddav-server-create
+                        :url "https://test.example.com"
+                        :auth (ecard-carddav-auth-basic-create
+                               :username "testuser"
+                               :password "testpass")))
+               (ab (car (ecard-carddav-discover-addressbooks server)))
+               (old-uid "urn:uuid:old-uid-12345")
+               (new-uid "urn:uuid:new-uid-67890")
+               (test-ecard (ecard-create
+                            :fn "Test Person"
+                            :email "test@example.com"
+                            :uid old-uid)))
+
+          ;; Create initial contact
+          (ecard-carddav-put-ecard ab "/addressbooks/user/contacts/old.vcf" test-ecard)
+
+          ;; Verify old contact exists
+          (let ((old-resource (ecard-carddav-get-resource ab "/addressbooks/user/contacts/old.vcf")))
+            (should old-resource)
+            (should (string= old-uid (ecard-get-property-value (oref old-resource ecard) 'uid))))
+
+          ;; Change UID
+          (let ((new-resource (ecard-carddav-change-uid ab "/addressbooks/user/contacts/old.vcf" new-uid)))
+            (should new-resource)
+            (should (string= new-uid (ecard-get-property-value (oref new-resource ecard) 'uid)))
+
+            ;; Verify new contact exists at new path
+            (let ((fetched (ecard-carddav-get-resource ab (oref new-resource url))))
+              (should fetched)
+              (should (string= new-uid (ecard-get-property-value (oref fetched ecard) 'uid)))
+              (should (string= "Test Person" (ecard-get-property-value (oref fetched ecard) 'fn))))
+
+            ;; Verify old contact is deleted
+            (should-error (ecard-carddav-get-resource ab "/addressbooks/user/contacts/old.vcf")
+                         :type 'ecard-carddav-not-found-error))))
+    (ecard-carddav-test--teardown)))
+
+(ert-deftest ecard-carddav-test-change-uid-nonexistent-resource ()
+  "Test UID change fails for non-existent resource."
+  (unwind-protect
+      (progn
+        (ecard-carddav-test--setup)
+        (let* ((server (ecard-carddav-server-create
+                        :url "https://test.example.com"
+                        :auth (ecard-carddav-auth-basic-create
+                               :username "testuser"
+                               :password "testpass")))
+               (ab (car (ecard-carddav-discover-addressbooks server))))
+
+          ;; Try to change UID of non-existent contact
+          (should-error (ecard-carddav-change-uid ab "/addressbooks/user/contacts/nonexistent.vcf"
+                                                  "urn:uuid:new-uid")
+                       :type 'ecard-carddav-not-found-error)))
+    (ecard-carddav-test--teardown)))
+
+(ert-deftest ecard-carddav-test-change-uid-preserves-properties ()
+  "Test that UID change preserves all other properties."
+  (unwind-protect
+      (progn
+        (ecard-carddav-test--setup)
+        (let* ((server (ecard-carddav-server-create
+                        :url "https://test.example.com"
+                        :auth (ecard-carddav-auth-basic-create
+                               :username "testuser"
+                               :password "testpass")))
+               (ab (car (ecard-carddav-discover-addressbooks server)))
+               (old-uid "urn:uuid:preserve-old-123")
+               (new-uid "urn:uuid:preserve-new-456")
+               (test-ecard (ecard-create
+                            :fn "John Doe"
+                            :n (list "Doe" "John" "Q" "Dr." "Jr.")
+                            :email "john@example.com"
+                            :tel "+1-555-1234"
+                            :org (list "Acme Corp" "Engineering")
+                            :title "Senior Developer"
+                            :note "Important contact"
+                            :uid old-uid)))
+
+          ;; Create initial contact
+          (ecard-carddav-put-ecard ab "/addressbooks/user/contacts/preserve.vcf" test-ecard)
+
+          ;; Change UID
+          (let ((new-resource (ecard-carddav-change-uid ab "/addressbooks/user/contacts/preserve.vcf" new-uid)))
+            (should new-resource)
+            (let ((new-ecard (oref new-resource ecard)))
+              ;; Verify UID changed
+              (should (string= new-uid (ecard-get-property-value new-ecard 'uid)))
+
+              ;; Verify all other properties preserved
+              (should (string= "John Doe" (ecard-get-property-value new-ecard 'fn)))
+              (should (equal (list "Doe" "John" "Q" "Dr." "Jr.")
+                            (ecard-get-property-value new-ecard 'n)))
+              (should (string= "john@example.com" (ecard-get-property-value new-ecard 'email)))
+              (should (string= "+1-555-1234" (ecard-get-property-value new-ecard 'tel)))
+              (should (equal (list "Acme Corp" "Engineering")
+                            (ecard-get-property-value new-ecard 'org)))
+              (should (string= "Senior Developer" (ecard-get-property-value new-ecard 'title)))
+              (should (string= "Important contact" (ecard-get-property-value new-ecard 'note)))))))
+    (ecard-carddav-test--teardown)))
+
 (provide 'ecard-carddav-tests)
 ;;; ecard-carddav-tests.el ends here

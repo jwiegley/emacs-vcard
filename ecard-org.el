@@ -85,7 +85,8 @@
   :prefix "ecard-org-")
 
 (defcustom ecard-org-property-mappings
-  '(("EMAIL" email nil)
+  '(("ID" uid nil)
+    ("EMAIL" email nil)
     ("EMAIL_HOME" email (("TYPE" . "home")))
     ("EMAIL_WORK" email (("TYPE" . "work")))
     ("PHONE" tel (("TYPE" . "voice")))

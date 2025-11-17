@@ -1012,5 +1012,49 @@ not all resources with some having placeholder names."
 
       (ecard-carddav-mock-uninstall))))
 
+;;; UID Display Tests
+
+(ert-deftest ecard-display-test-uid-in-detail-view ()
+  "Test that UID is displayed in contact detail view."
+  (let* ((uid-prop (ecard-property :name "UID" :value "urn:uuid:test-uid-12345"))
+         (fn-prop (ecard-property :name "FN" :value "Test Person"))
+         (ecard-obj (ecard :fn (list fn-prop) :uid (list uid-prop)))
+         (addressbook (ecard-carddav-addressbook :url "https://test.example.com/contacts/"))
+         (resource (ecard-carddav-resource
+                    :addressbook addressbook
+                    :url "https://test.example.com/contacts/test.vcf"
+                    :path "/contacts/test.vcf"
+                    :ecard ecard-obj)))
+    (with-temp-buffer
+      (ecard-display-contact-mode)
+      (setq ecard-display--resource resource
+            ecard-display--addressbook addressbook)
+      (ecard-display-contact--render resource)
+      (let ((content (buffer-string)))
+        (should (string-match-p "UID:" content))
+        (should (string-match-p "urn:uuid:test-uid-12345" content))))))
+
+(ert-deftest ecard-display-test-no-uid-in-detail-view ()
+  "Test that contact detail view works without UID."
+  (let* ((fn-prop (ecard-property :name "FN" :value "Test Person"))
+         (ecard-obj (ecard :fn (list fn-prop)))
+         (addressbook (ecard-carddav-addressbook :url "https://test.example.com/contacts/"))
+         (resource (ecard-carddav-resource
+                    :addressbook addressbook
+                    :url "https://test.example.com/contacts/test.vcf"
+                    :path "/contacts/test.vcf"
+                    :ecard ecard-obj)))
+    (with-temp-buffer
+      (ecard-display-contact-mode)
+      (setq ecard-display--resource resource
+            ecard-display--addressbook addressbook)
+      (ecard-display-contact--render resource)
+      (let ((content (buffer-string)))
+        ;; Should not display UID section if no UID
+        (should-not (string-match-p "UID:" content))
+        ;; But should still display other content
+        (should (string-match-p "Full Name:" content))
+        (should (string-match-p "Test Person" content))))))
+
 (provide 'ecard-display-test)
 ;;; ecard-display-test.el ends here

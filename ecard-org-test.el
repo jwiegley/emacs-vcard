@@ -355,6 +355,39 @@ Some content here.
 
 ;;; 2. Property Mapping Tests
 
+(ert-deftest ecard-org-test-uid-property ()
+  "Test ID property mapping to UID."
+  (ecard-org-test-with-temp-org-buffer
+      "* Test\n:PROPERTIES:\n:VCARD: t\n:ID: urn:uuid:test-12345\n:END:\n"
+    (let ((vc (ecard-org-entry-to-ecard)))
+      (should vc)
+      (should (string= "urn:uuid:test-12345" (ecard-get-property-value vc 'uid)))
+      ;; UID should have no parameters
+      (let ((uid-prop (car (oref vc uid))))
+        (should-not (oref uid-prop parameters))))))
+
+(ert-deftest ecard-org-test-uid-reverse-mapping ()
+  "Test reverse mapping from vCard UID to Org ID property."
+  (let* ((vc (ecard-create :fn "Test Person" :uid "urn:uuid:reverse-test-67890"))
+         (org-entry (ecard-org-ecard-to-entry vc 1)))
+    (should (string-match-p ":ID: urn:uuid:reverse-test-67890" org-entry))))
+
+(ert-deftest ecard-org-test-uid-roundtrip ()
+  "Test UID round-trip conversion (Org → vCard → Org)."
+  (ecard-org-test-with-temp-org-buffer
+      "* Contact\n:PROPERTIES:\n:VCARD: t\n:ID: urn:uuid:roundtrip-abc123\n:END:\n"
+    (let* ((vc1 (ecard-org-entry-to-ecard))
+           (uid1 (ecard-get-property-value vc1 'uid)))
+      (should (string= "urn:uuid:roundtrip-abc123" uid1))
+      ;; Convert back to Org
+      (let ((org-entry (ecard-org-ecard-to-entry vc1 1)))
+        (should (string-match-p ":ID: urn:uuid:roundtrip-abc123" org-entry))
+        ;; Parse the org entry to vCard again and verify UID preserved
+        (ecard-org-test-with-temp-org-buffer org-entry
+          (let* ((vc2 (ecard-org-entry-to-ecard))
+                 (uid2 (ecard-get-property-value vc2 'uid)))
+            (should (string= uid1 uid2))))))))
+
 (ert-deftest ecard-org-test-simple-email-property ()
   "Test simple EMAIL property mapping."
   (ecard-org-test-with-temp-org-buffer

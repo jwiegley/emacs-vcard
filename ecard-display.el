@@ -723,6 +723,13 @@ Fetches full vCard data if not already loaded."
     (widget-insert (propertize (make-string 60 ?=) 'face 'shadow))
     (widget-insert "\n\n")
 
+    ;; UID
+    (let ((uids (oref ecard-obj uid)))
+      (when uids
+        (widget-insert (propertize "UID: " 'face 'bold))
+        (widget-insert (ecard-display--safe-string (oref (car uids) value)))
+        (widget-insert "\n\n")))
+
     ;; FN
     (widget-insert (propertize "Full Name: " 'face 'bold))
     (widget-insert (ecard-display--safe-string (ecard-display--get-fn ecard-obj)))
