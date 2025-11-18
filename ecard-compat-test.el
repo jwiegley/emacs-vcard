@@ -526,5 +526,294 @@ END:VCARD"))
               (should (string= "buffer@example.com" (ecard-get-property-value result 'email))))))
       (kill-buffer test-buffer))))
 
+;;; vCard 3.0 Serialization Tests
+;;
+;; Comprehensive tests for ecard-compat-serialize function
+;; Tests RFC 2425 and RFC 2426 compliance
+
+(ert-deftest ecard-compat-serialize-simple ()
+  "Test basic vCard 3.0 serialization."
+  (let* ((vc (ecard-create :fn "John Doe" :email "john@example.com"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "BEGIN:VCARD" vcard-30))
+    (should (string-match-p "VERSION:3.0" vcard-30))
+    (should (string-match-p "FN:John Doe" vcard-30))
+    (should (string-match-p "EMAIL:john@example.com" vcard-30))
+    (should (string-match-p "END:VCARD" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-structured-name ()
+  "Test vCard 3.0 serialization with structured name (N property)."
+  (let* ((vc (ecard-create
+              :fn "John Quincy Doe Jr."
+              :n '("Doe" "John" "Quincy" "Mr." "Jr.")))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "N:Doe;John;Quincy;Mr\\.;Jr\\." vcard-30))))
+
+(ert-deftest ecard-compat-serialize-tel-with-types ()
+  "Test vCard 3.0 telephone serialization with TYPE parameters."
+  (let* ((vc (ecard-create :fn "Jane Smith"))
+         (tel-prop (ecard-property
+                    :name "TEL"
+                    :value "+1-555-1234"
+                    :parameters '(("TYPE" . "home,voice")))))
+    (oset vc tel (list tel-prop))
+    (let ((vcard-30 (ecard-compat-serialize vc)))
+      ;; TYPE values should be uppercased in vCard 3.0
+      (should (string-match-p "TEL;TYPE=HOME,VOICE:\\+1-555-1234" vcard-30)))))
+
+(ert-deftest ecard-compat-serialize-address ()
+  "Test vCard 3.0 address serialization (ADR property)."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :adr '("" "Suite 100" "123 Main St" "Springfield" "IL" "62701" "USA")))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "ADR:;Suite 100;123 Main St;Springfield;IL;62701;USA" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-org ()
+  "Test vCard 3.0 organization serialization (ORG property)."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :org '("Example Corp" "Engineering" "R&D")))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "ORG:Example Corp;Engineering;R&D" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-categories ()
+  "Test vCard 3.0 categories serialization (comma-separated)."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :categories '("Work" "Friend" "VIP")))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "CATEGORIES:Work,Friend,VIP" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-nickname ()
+  "Test vCard 3.0 nickname serialization (comma-separated)."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :nickname '("Janie" "JayJay")))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "NICKNAME:Janie,JayJay" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-non-ascii ()
+  "Test vCard 3.0 serialization with non-ASCII characters.
+Should add CHARSET=UTF-8 parameter."
+  (let* ((vc (ecard-create :fn "José García"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    ;; Should contain CHARSET=UTF-8 for non-ASCII
+    (should (string-match-p "FN;CHARSET=UTF-8:José García" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-photo-data-uri ()
+  "Test vCard 3.0 serialization with PHOTO as data URI.
+Should convert to ENCODING=BASE64."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :photo "data:image/jpeg;base64,/9j/4AAQSkZJRg=="))
+         (vcard-30 (ecard-compat-serialize vc)))
+    ;; Should extract and use BASE64 encoding
+    ;; Note: TYPE comes before ENCODING due to parameter ordering
+    (should (string-match-p "PHOTO;TYPE=IMAGE/JPEG;ENCODING=BASE64:/9j/4AAQSkZJRg==" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-logo-data-uri ()
+  "Test vCard 3.0 serialization with LOGO as data URI."
+  (let* ((vc (ecard-create
+              :fn "Company Name"
+              :logo "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgA="))
+         (vcard-30 (ecard-compat-serialize vc)))
+    ;; Note: TYPE comes before ENCODING due to parameter ordering
+    (should (string-match-p "LOGO;TYPE=IMAGE/PNG;ENCODING=BASE64:iVBORw0KGgoAAAANSUhEUgA=" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-uid ()
+  "Test vCard 3.0 serialization with UID.
+urn:uuid: prefix is preserved (optional in 3.0, required in 4.0)."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :uid "urn:uuid:12345678-1234-1234-1234-123456789abc"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "UID:urn:uuid:12345678-1234-1234-1234-123456789abc" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-extended-properties ()
+  "Test vCard 3.0 serialization with X-* extended properties."
+  (let* ((vc (ecard-create :fn "Jane Smith"))
+         (x-prop (ecard-property
+                  :name "X-CUSTOM"
+                  :value "custom-value")))
+    (oset vc extended (list (cons "X-CUSTOM" (list x-prop))))
+    (let ((vcard-30 (ecard-compat-serialize vc)))
+      (should (string-match-p "X-CUSTOM:custom-value" vcard-30)))))
+
+(ert-deftest ecard-compat-serialize-group ()
+  "Test vCard 3.0 serialization with grouped properties."
+  (let* ((vc (ecard-create :fn "Jane Smith"))
+         (email-prop (ecard-property
+                      :name "EMAIL"
+                      :value "jane@example.com"
+                      :group "WORK")))
+    (oset vc email (list email-prop))
+    (let ((vcard-30 (ecard-compat-serialize vc)))
+      (should (string-match-p "WORK\\.EMAIL:jane@example.com" vcard-30)))))
+
+(ert-deftest ecard-compat-serialize-multiple ()
+  "Test serialization of multiple vCards to vCard 3.0."
+  (let* ((vc1 (ecard-create :fn "John Doe" :email "john@example.com"))
+         (vc2 (ecard-create :fn "Jane Smith" :email "jane@example.com"))
+         (vcards-30 (ecard-compat-serialize-multiple (list vc1 vc2))))
+    ;; Should contain two vCards
+    (should (= (length (split-string vcards-30 "BEGIN:VCARD")) 3))
+    (should (string-match-p "FN:John Doe" vcards-30))
+    (should (string-match-p "FN:Jane Smith" vcards-30))
+    ;; Check for two VERSION:3.0 occurrences (one per vCard)
+    (should (= (length (split-string vcards-30 "VERSION:3.0")) 3))))
+
+(ert-deftest ecard-compat-serialize-round-trip-basic ()
+  "Test round-trip conversion: 3.0 → 4.0 → 3.0."
+  (let* ((vcard-30-original "BEGIN:VCARD
+VERSION:3.0
+FN:John Doe
+EMAIL;TYPE=HOME:john@example.com
+TEL;TYPE=WORK,VOICE:+1-555-1234
+END:VCARD")
+         ;; Parse 3.0 to 4.0 object
+         (vc (ecard-compat-parse-30 vcard-30-original))
+         ;; Serialize back to 3.0
+         (vcard-30-new (ecard-compat-serialize vc)))
+    ;; Verify essential properties preserved
+    (should (string-match-p "VERSION:3.0" vcard-30-new))
+    (should (string-match-p "FN:John Doe" vcard-30-new))
+    (should (string-match-p "EMAIL.*john@example.com" vcard-30-new))
+    (should (string-match-p "TEL.*\\+1-555-1234" vcard-30-new))))
+
+(ert-deftest ecard-compat-serialize-bday ()
+  "Test vCard 3.0 serialization with birthday."
+  (let* ((vc (ecard-create :fn "Jane Smith" :bday "19850615"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "BDAY:19850615" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-anniversary ()
+  "Test vCard 3.0 serialization with anniversary."
+  (let* ((vc (ecard-create :fn "Jane Smith" :anniversary "20100701"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "ANNIVERSARY:20100701" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-gender ()
+  "Test vCard 3.0 serialization with gender."
+  (let* ((vc (ecard-create :fn "Jane Smith" :gender '("F" "Female")))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "GENDER:F;Female" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-geo ()
+  "Test vCard 3.0 serialization with geographical position."
+  (let* ((vc (ecard-create :fn "Jane Smith" :geo "geo:37.386013,-122.082932"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    ;; Comma in value is escaped per vCard escaping rules
+    (should (string-match-p "GEO:geo:37\\.386013\\\\,-122\\.082932" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-title-role ()
+  "Test vCard 3.0 serialization with title and role."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :title "Senior Engineer"
+              :role "Team Lead"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "TITLE:Senior Engineer" vcard-30))
+    (should (string-match-p "ROLE:Team Lead" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-note ()
+  "Test vCard 3.0 serialization with note."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :note "Important contact"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "NOTE:Important contact" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-url ()
+  "Test vCard 3.0 serialization with URL."
+  (let* ((vc (ecard-create
+              :fn "Jane Smith"
+              :url "https://example.com"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    (should (string-match-p "URL:https://example.com" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-multiple-emails ()
+  "Test vCard 3.0 serialization with multiple email addresses."
+  (let* ((vc (ecard-create :fn "Jane Smith"))
+         (email1 (ecard-property
+                  :name "EMAIL"
+                  :value "jane@example.com"
+                  :parameters '(("TYPE" . "work"))))
+         (email2 (ecard-property
+                  :name "EMAIL"
+                  :value "jane.personal@example.org"
+                  :parameters '(("TYPE" . "home")))))
+    (oset vc email (list email1 email2))
+    (let ((vcard-30 (ecard-compat-serialize vc)))
+      (should (string-match-p "EMAIL;TYPE=WORK:jane@example.com" vcard-30))
+      (should (string-match-p "EMAIL;TYPE=HOME:jane.personal@example.org" vcard-30)))))
+
+(ert-deftest ecard-compat-serialize-multiple-phones ()
+  "Test vCard 3.0 serialization with multiple phone numbers."
+  (let* ((vc (ecard-create :fn "Jane Smith"))
+         (tel1 (ecard-property
+                :name "TEL"
+                :value "+1-555-1234"
+                :parameters '(("TYPE" . "work,voice"))))
+         (tel2 (ecard-property
+                :name "TEL"
+                :value "+1-555-5678"
+                :parameters '(("TYPE" . "home,voice"))))
+         (tel3 (ecard-property
+                :name "TEL"
+                :value "+1-555-9999"
+                :parameters '(("TYPE" . "cell")))))
+    (oset vc tel (list tel1 tel2 tel3))
+    (let ((vcard-30 (ecard-compat-serialize vc)))
+      (should (string-match-p "TEL;TYPE=WORK,VOICE:\\+1-555-1234" vcard-30))
+      (should (string-match-p "TEL;TYPE=HOME,VOICE:\\+1-555-5678" vcard-30))
+      (should (string-match-p "TEL;TYPE=CELL:\\+1-555-9999" vcard-30)))))
+
+(ert-deftest ecard-compat-serialize-escaping ()
+  "Test vCard 3.0 serialization with special characters requiring escaping."
+  (let* ((vc (ecard-create
+              :fn "Test, User"
+              :note "Line 1\nLine 2\nLine 3"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    ;; Comma should be escaped
+    (should (string-match-p "FN:Test\\\\, User" vcard-30))
+    ;; Newlines should be escaped
+    (should (string-match-p "NOTE:Line 1\\\\nLine 2\\\\nLine 3" vcard-30))))
+
+(ert-deftest ecard-compat-serialize-complex-vcard ()
+  "Test vCard 3.0 serialization with many properties (comprehensive test)."
+  (let* ((vc (ecard-create
+              :fn "Dr. Jane Quincy Smith Jr."
+              :n '("Smith" "Jane" "Quincy" "Dr." "Jr.")
+              :nickname '("JQ" "Janie")
+              :email "jane@example.com"
+              :tel "+1-555-1234"
+              :adr '("" "Suite 200" "456 Oak Ave" "Springfield" "IL" "62701" "USA")
+              :org '("Example Corp" "Engineering")
+              :title "Chief Engineer"
+              :role "Technical Lead"
+              :categories '("Work" "VIP")
+              :note "Important contact - handles all technical decisions"
+              :url "https://jane.example.com"
+              :bday "19800115"
+              :uid "urn:uuid:abcd-1234-efgh-5678"))
+         (vcard-30 (ecard-compat-serialize vc)))
+    ;; Verify all properties present
+    (should (string-match-p "VERSION:3.0" vcard-30))
+    (should (string-match-p "FN:Dr\\. Jane Quincy Smith Jr\\." vcard-30))
+    (should (string-match-p "N:Smith;Jane;Quincy;Dr\\.;Jr\\." vcard-30))
+    (should (string-match-p "NICKNAME:JQ,Janie" vcard-30))
+    (should (string-match-p "EMAIL:jane@example.com" vcard-30))
+    (should (string-match-p "TEL:\\+1-555-1234" vcard-30))
+    (should (string-match-p "ADR:;Suite 200;456 Oak Ave;Springfield;IL;62701;USA" vcard-30))
+    (should (string-match-p "ORG:Example Corp;Engineering" vcard-30))
+    (should (string-match-p "TITLE:Chief Engineer" vcard-30))
+    (should (string-match-p "ROLE:Technical Lead" vcard-30))
+    (should (string-match-p "CATEGORIES:Work,VIP" vcard-30))
+    (should (string-match-p "NOTE:Important contact" vcard-30))
+    (should (string-match-p "URL:https://jane\\.example\\.com" vcard-30))
+    (should (string-match-p "BDAY:19800115" vcard-30))
+    (should (string-match-p "UID:urn:uuid:abcd-1234-efgh-5678" vcard-30))))
+
 (provide 'ecard-compat-test)
 ;;; ecard-compat-test.el ends here

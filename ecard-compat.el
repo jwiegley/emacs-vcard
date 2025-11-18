@@ -609,5 +609,228 @@ If FILENAME contains multiple vCards, returns a list of ecard objects."
           (car vcards)
         vcards))))
 
+;;; vCard 3.0 Serialization
+;;
+;; Functions for converting vCard 4.0 objects to vCard 3.0 format.
+;; This is the reverse of the parsing functions above.
+
+(defun ecard-compat--extract-data-uri (data-uri)
+  "Extract media type and base64 data from DATA-URI.
+Returns cons cell (MEDIA-TYPE . BASE64-DATA) or nil if not a data URI."
+  (when (and data-uri (string-prefix-p "data:" data-uri))
+    (if (string-match "^data:\\([^;,]+\\);base64,\\(.*\\)$" data-uri)
+        (cons (match-string 1 data-uri)
+              (match-string 2 data-uri))
+      nil)))
+
+(defun ecard-compat--needs-quoted-printable-p (value)
+  "Return t if VALUE contains non-ASCII characters requiring QUOTED-PRINTABLE.
+vCard 3.0 requires CHARSET and optionally ENCODING for non-ASCII text."
+  (and value
+       (stringp value)
+       (not (string-match-p "\\`[[:ascii:]]*\\'" value))))
+
+(defun ecard-compat--encode-quoted-printable (value)
+  "Encode VALUE using QUOTED-PRINTABLE encoding.
+Encodes bytes that are not printable ASCII (33-126 except =) as =XX."
+  (let ((encoded "")
+        (bytes (encode-coding-string value 'utf-8)))
+    (dotimes (i (length bytes))
+      (let ((byte (aref bytes i)))
+        (if (or (< byte 33) (> byte 126) (= byte ?=))
+            (setq encoded (concat encoded (format "=%02X" byte)))
+          (setq encoded (concat encoded (char-to-string byte))))))
+    encoded))
+
+(defun ecard-compat--format-parameters-30 (parameters)
+  "Format PARAMETERS alist into vCard 3.0 parameter string.
+Unlike vCard 4.0, vCard 3.0 doesn't quote comma-separated TYPE values.
+Returns string like \"PARAM1=val1;PARAM2=val2\" or empty string."
+  (if (null parameters)
+      ""
+    (mapconcat (lambda (param)
+                 (let ((key (car param))
+                       (val (cdr param)))
+                   (if (eq val t)
+                       key
+                     (format "%s=%s" key val))))
+               parameters
+               ";")))
+
+(defun ecard-compat--convert-params-to-30 (params prop-name value)
+  "Convert vCard 4.0 PARAMS to vCard 3.0 format for PROP-NAME.
+VALUE is the property value, used to determine encoding needs.
+Returns alist of parameters suitable for vCard 3.0."
+  (let ((converted '())
+        (has-encoding nil))
+
+    (dolist (param params)
+      (let ((name (upcase (car param)))
+            (val (cdr param)))
+        (cond
+         ;; TYPE parameter - uppercase values for 3.0
+         ((string= name "TYPE")
+          (let ((type-values (split-string val "," t "[ \t]*")))
+            (push (cons "TYPE" (mapconcat #'upcase type-values ","))
+                  converted)))
+
+         ;; VALUE parameter - keep as-is
+         ((string= name "VALUE")
+          (push (cons "VALUE" (upcase val)) converted))
+
+         ;; ENCODING parameter - already present
+         ((string= name "ENCODING")
+          (setq has-encoding t)
+          (push param converted))
+
+         ;; CHARSET parameter - already present
+         ((string= name "CHARSET")
+          (push param converted))
+
+         ;; Other parameters - keep as-is
+         (t
+          (push param converted)))))
+
+    ;; Add CHARSET=UTF-8 if value has non-ASCII and no encoding specified
+    (when (and (ecard-compat--needs-quoted-printable-p value)
+               (not has-encoding)
+               (not (member prop-name '("PHOTO" "LOGO" "SOUND" "KEY"))))
+      (push (cons "CHARSET" "UTF-8") converted))
+
+    (nreverse converted)))
+
+(defun ecard-compat--format-property-30 (prop)
+  "Format ecard property PROP into vCard 3.0 line (without folding).
+Returns formatted string."
+  (let* ((group (oref prop group))
+         (name (oref prop name))
+         (parameters (oref prop parameters))
+         (value (oref prop value))
+         (is-binary (member name '("PHOTO" "LOGO" "SOUND" "KEY")))
+         (actual-value value)
+         (extra-params '()))
+
+    ;; Handle binary properties with data URIs
+    (when (and is-binary (stringp value))
+      (let ((extracted (ecard-compat--extract-data-uri value)))
+        (if extracted
+            (progn
+              ;; Extract media type and base64 data
+              (setq actual-value (cdr extracted))
+              (push (cons "ENCODING" "BASE64") extra-params)
+              (push (cons "TYPE" (car extracted)) extra-params))
+          ;; Not a data URI, use as-is
+          (setq actual-value value))))
+
+    ;; Convert parameters to 3.0 format
+    (let* ((all-params (append extra-params parameters))
+           (params-30 (ecard-compat--convert-params-to-30
+                       all-params name actual-value))
+           (param-str (ecard-compat--format-parameters-30 params-30))
+           (value-str (if (listp actual-value)
+                          ;; Text-list properties use comma separator
+                          (if (member name '("CATEGORIES" "NICKNAME"))
+                              (mapconcat #'ecard--escape-value actual-value ",")
+                            ;; Structured properties use semicolon separator
+                            (mapconcat #'ecard--escape-value actual-value ";"))
+                        (ecard--escape-value actual-value))))
+
+      (concat (if group (concat group ".") "")
+              name
+              (if (not (string-empty-p param-str)) (concat ";" param-str) "")
+              ":"
+              value-str))))
+
+(defun ecard-compat--serialize-properties-30 (props)
+  "Serialize list of ecard properties PROPS into vCard 3.0 lines.
+Returns list of folded lines.
+
+Special handling: For text-list properties (CATEGORIES, NICKNAME),
+if there are multiple properties with single values, they are combined
+into a single property with comma-separated values."
+  (let ((lines nil)
+        (text-list-props '("CATEGORIES" "NICKNAME"))
+        (pending-text-lists (make-hash-table :test 'equal)))
+
+    ;; First pass: collect text-list properties
+    (dolist (prop props)
+      (let ((name (oref prop name)))
+        (if (member name text-list-props)
+            ;; Accumulate text-list values
+            (let ((existing (gethash name pending-text-lists)))
+              (puthash name (append existing (list prop)) pending-text-lists))
+          ;; Regular property - serialize immediately
+          (let ((line (ecard-compat--format-property-30 prop)))
+            (setq lines (append lines (ecard--fold-line line)))))))
+
+    ;; Second pass: serialize accumulated text-list properties
+    (maphash
+     (lambda (name prop-list)
+       (if (and (= (length prop-list) 1)
+                (listp (oref (car prop-list) value)))
+           ;; Single property with list value - serialize as-is
+           (let ((line (ecard-compat--format-property-30 (car prop-list))))
+             (setq lines (append lines (ecard--fold-line line))))
+         ;; Multiple properties with single values - combine them
+         (let* ((first-prop (car prop-list))
+                (combined-values (mapcar (lambda (p) (oref p value)) prop-list))
+                (combined-prop (ecard-property
+                                :name name
+                                :value combined-values
+                                :parameters (oref first-prop parameters)
+                                :group (oref first-prop group))))
+           (let ((line (ecard-compat--format-property-30 combined-prop)))
+             (setq lines (append lines (ecard--fold-line line)))))))
+     pending-text-lists)
+
+    lines))
+
+;;;###autoload
+(defun ecard-compat-serialize (vc)
+  "Serialize ecard object VC to vCard 3.0 text string.
+Converts vCard 4.0 properties to vCard 3.0 format.
+Returns a properly formatted and folded vCard 3.0 string.
+
+Key conversions:
+- VERSION:4.0 → VERSION:3.0
+- Data URIs → ENCODING=BASE64 for binary properties
+- Adds CHARSET=UTF-8 for non-ASCII text
+- TYPE parameter values uppercased
+- UID urn:uuid: prefix preserved (optional in 3.0)
+
+Example:
+  (setq card (ecard-create :fn \"John Doe\" :email \"john@example.com\"))
+  (ecard-compat-serialize card)
+  => \"BEGIN:VCARD\\r\\nVERSION:3.0\\r\\n...\""
+  (let ((lines '("BEGIN:VCARD" "VERSION:3.0")))
+
+    ;; Serialize all properties in defined order (same as 4.0)
+    (dolist (slot '(source kind xml fn n nickname photo bday anniversary gender
+                    adr tel email impp lang geo tz title role logo org member related
+                    categories note prodid rev sound uid clientpidmap url
+                    key fburl caladruri caluri))
+      (let ((props (slot-value vc slot)))
+        (when props
+          (setq lines (append lines (ecard-compat--serialize-properties-30 props))))))
+
+    ;; Serialize extended properties (X-*)
+    (let ((extended (oref vc extended)))
+      (dolist (entry extended)
+        (let ((props (cdr entry)))
+          (setq lines (append lines (ecard-compat--serialize-properties-30 props))))))
+
+    ;; Add END:VCARD
+    (setq lines (append lines '("END:VCARD")))
+
+    ;; Join with CRLF as per RFC 2425
+    (mapconcat #'identity lines "\r\n")))
+
+;;;###autoload
+(defun ecard-compat-serialize-multiple (vcards)
+  "Serialize list of ecard objects VCARDS to vCard 3.0 text string.
+Each vCard is separated by a newline.
+Returns a properly formatted and folded vCard 3.0 string."
+  (mapconcat #'ecard-compat-serialize vcards "\r\n"))
+
 (provide 'ecard-compat)
 ;;; ecard-compat.el ends here

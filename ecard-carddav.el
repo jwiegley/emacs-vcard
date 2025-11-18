@@ -127,6 +127,13 @@
 If a function, it will be called with no arguments whenever authentication
 is needed, allowing for dynamic credential retrieval (e.g., from auth-source,
 password managers, or OAuth token refresh).")
+   (version
+    :initarg :version
+    :initform "4.0"
+    :type string
+    :documentation "vCard version to use for this server (\"3.0\" or \"4.0\").
+Default is \"4.0\". Set to \"3.0\" for servers that only support vCard 3.0
+like Radicale. This can be overridden per-addressbook.")
    (principal-url
     :initarg :principal-url
     :initform nil
@@ -155,6 +162,12 @@ password managers, or OAuth token refresh).")
     :initform nil
     :type (or null string)
     :documentation "Full URL to this address book resource.")
+   (version
+    :initarg :version
+    :initform nil
+    :type (or null string)
+    :documentation "vCard version to use for this addressbook (\"3.0\" or \"4.0\").
+If nil, inherits from server's version. Allows per-addressbook version control.")
    (display-name
     :initarg :display-name
     :initform nil
@@ -697,13 +710,27 @@ Signals error if resource not found."
 VCARD-OBJ is the ecard object to store.
 ETAG is optional - if provided, uses If-Match for concurrency control.
 Returns updated `ecard-carddav-resource' object.
-Signals conflict error if ETAG doesn't match."
+Signals conflict error if ETAG doesn't match.
+
+The vCard version used for serialization is determined by:
+1. Addressbook's :version slot (if set)
+2. Otherwise, server's :version slot (defaults to \"4.0\")
+
+Set server or addressbook :version to \"3.0\" for compatibility with
+servers that only support vCard 3.0 (e.g., Radicale)."
   (let* ((server (oref addressbook server))
          (auth (ecard-carddav--get-auth server))
          (url (if (string-prefix-p "http" path-or-url)
                   path-or-url
                 (ecard-carddav--resolve-url path-or-url (oref addressbook url))))
-         (ecard-data (ecard-serialize ecard-obj))
+         ;; Determine version: addressbook > server > "4.0" default
+         (version (or (oref addressbook version)
+                      (oref server version)
+                      "4.0"))
+         ;; Use appropriate serialization based on version
+         (ecard-data (if (string= version "3.0")
+                         (ecard-compat-serialize ecard-obj)
+                       (ecard-serialize ecard-obj)))
          (headers (when etag
                    (list (cons "If-Match" (format "\"%s\"" etag)))))
          (buffer (ecard-carddav--request-with-retry
