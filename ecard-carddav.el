@@ -1021,9 +1021,7 @@ Examples:
     ;; Validate auth - if it's a function, call it once to validate
     (let ((auth-obj (if (functionp auth) (funcall auth) auth)))
       (ecard-carddav-auth-ensure-valid auth-obj))
-    (ecard-carddav-server
-     :url url
-     :auth auth)))
+    (apply #'ecard-carddav-server args)))
 
 (provide 'ecard-carddav)
 ;;; ecard-carddav.el ends here
