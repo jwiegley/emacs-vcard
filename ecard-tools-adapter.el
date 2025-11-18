@@ -830,6 +830,95 @@ This is a helper function primarily used in tests."
 
     new-vcard))
 
+(defun ecard-tools-merge-vcards (vcard1 vcard2)
+  "Merge two VCARDs into one, combining fields and deduplicating values.
+VCARD1 takes precedence for conflicting scalar fields.
+Multi-valued fields like email and tel are deduplicated and combined."
+  ;; Start with a copy of vcard1
+  (let ((merged (ecard-tools-vcard-copy vcard1)))
+
+    ;; Merge emails - deduplicate by value
+    (let* ((emails1 (ecard-tools-vcard-email vcard1))
+           (emails2 (ecard-tools-vcard-email vcard2))
+           (all-emails (append emails1 emails2))
+           (seen-values (make-hash-table :test 'equal))
+           (unique-emails nil))
+      (dolist (email all-emails)
+        (let ((value (ecard-tools-email-value email)))
+          (unless (gethash value seen-values)
+            (puthash value t seen-values)
+            (push email unique-emails))))
+      (when unique-emails
+        (ecard-tools--set-vcard-email merged (nreverse unique-emails))))
+
+    ;; Merge telephones - deduplicate by value
+    (let* ((tels1 (ecard-tools-vcard-tel vcard1))
+           (tels2 (ecard-tools-vcard-tel vcard2))
+           (all-tels (append tels1 tels2))
+           (seen-values (make-hash-table :test 'equal))
+           (unique-tels nil))
+      (dolist (tel all-tels)
+        (let ((value (ecard-tools-tel-value tel)))
+          (unless (gethash value seen-values)
+            (puthash value t seen-values)
+            (push tel unique-tels))))
+      (when unique-tels
+        (ecard-tools--set-vcard-tel merged (nreverse unique-tels))))
+
+    ;; Merge addresses - deduplicate by full address
+    (let* ((adrs1 (ecard-tools-vcard-adr vcard1))
+           (adrs2 (ecard-tools-vcard-adr vcard2))
+           (all-adrs (append adrs1 adrs2))
+           (seen-values (make-hash-table :test 'equal))
+           (unique-adrs nil))
+      (dolist (adr all-adrs)
+        (let ((key (format "%s|%s|%s|%s|%s|%s|%s"
+                          (or (ecard-tools-adr-po-box adr) "")
+                          (or (ecard-tools-adr-extended adr) "")
+                          (or (ecard-tools-adr-street adr) "")
+                          (or (ecard-tools-adr-locality adr) "")
+                          (or (ecard-tools-adr-region adr) "")
+                          (or (ecard-tools-adr-postal-code adr) "")
+                          (or (ecard-tools-adr-country adr) ""))))
+          (unless (gethash key seen-values)
+            (puthash key t seen-values)
+            (push adr unique-adrs))))
+      (when unique-adrs
+        (ecard-tools--set-vcard-adr merged (nreverse unique-adrs))))
+
+    ;; Merge scalar fields - if vcard1 doesn't have it, take from vcard2
+    (unless (ecard-tools-vcard-org merged)
+      (when (ecard-tools-vcard-org vcard2)
+        (ecard-tools--set-vcard-org merged (ecard-tools-vcard-org vcard2))))
+
+    (unless (ecard-tools-vcard-title merged)
+      (when (ecard-tools-vcard-title vcard2)
+        (ecard-tools--set-vcard-title merged (ecard-tools-vcard-title vcard2))))
+
+    (unless (ecard-tools-vcard-note merged)
+      (when (ecard-tools-vcard-note vcard2)
+        (ecard-tools--set-vcard-note merged (ecard-tools-vcard-note vcard2))))
+
+    (unless (ecard-tools-vcard-bday merged)
+      (when (ecard-tools-vcard-bday vcard2)
+        (ecard-tools--set-vcard-bday merged (ecard-tools-vcard-bday vcard2))))
+
+    (unless (ecard-tools-vcard-url merged)
+      (when (ecard-tools-vcard-url vcard2)
+        (ecard-tools--set-vcard-url merged (ecard-tools-vcard-url vcard2))))
+
+    ;; Categories - combine and deduplicate
+    (let ((cats1 (ecard-tools-vcard-categories vcard1))
+          (cats2 (ecard-tools-vcard-categories vcard2)))
+      (when (or cats1 cats2)
+        (let ((all-cats (append cats1 cats2)))
+          (ecard-tools--set-vcard-categories merged (delete-dups all-cats)))))
+
+    ;; Mark as modified
+    (ecard-tools--set-vcard-modified-p merged t)
+
+    merged))
+
 ;; ============================================================================
 ;; Validation and Auto-Repair
 ;; ============================================================================
