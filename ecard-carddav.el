@@ -103,6 +103,52 @@
   :type 'string
   :group 'ecard-carddav)
 
+(defcustom ecard-carddav-servers nil
+  "List of CardDAV server configurations.
+
+Each element can be either:
+
+1. A plist with keys:
+   :name STRING - Display name for the server
+   :url STRING - Base URL of CardDAV server
+   :username STRING - Username for authentication
+   :password STRING - Password for authentication
+
+2. An ecard-carddav-server object (created with ecard-carddav-server-create)
+
+Both formats are supported and can be mixed in the same list.
+
+Examples:
+
+  ;; Plist format (simple)
+  (setq ecard-carddav-servers
+        \\='((:name \"FastMail\"
+           :url \"https://carddav.fastmail.com\"
+           :username \"user@fastmail.com\"
+           :password \"secret\")))
+
+  ;; Server object format (flexible)
+  (setq ecard-carddav-servers
+        (list (ecard-carddav-server-create
+               :url \"https://carddav.fastmail.com\"
+               :auth (ecard-carddav-auth-basic-create
+                      :username \"user@fastmail.com\"
+                      :password \"secret\"))))
+
+  ;; Mixed format
+  (setq ecard-carddav-servers
+        (list \\='(:name \"FastMail\" :url \"...\" :username \"...\" :password \"...\")
+              (ecard-carddav-server-create :url \"...\" :auth ...)))"
+  :type '(repeat (choice
+                  (plist :tag "Plist Configuration"
+                         :key-type (choice (const :name)
+                                           (const :url)
+                                           (const :username)
+                                           (const :password))
+                         :value-type string)
+                  (object :tag "Server Object" ecard-carddav-server)))
+  :group 'ecard-carddav)
+
 ;;; Error conditions
 
 (define-error 'ecard-carddav-error "CardDAV error")

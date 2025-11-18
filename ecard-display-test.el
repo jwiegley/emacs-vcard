@@ -19,35 +19,43 @@
 
 (ert-deftest ecard-display-test-servers-buffer ()
   "Test that server list buffer can be created."
-  (let ((ecard-display-servers
-         '((:name "Test Server"
-            :url "https://test.example.com"
-            :username "test"
-            :password "secret"))))
-    (with-temp-buffer
-      (ecard-display-servers-mode)
-      (should (eq major-mode 'ecard-display-servers-mode))
-      (should (boundp 'tabulated-list-format))
-      (should (vectorp tabulated-list-format)))))
+  (let ((saved-servers ecard-carddav-servers))
+    (unwind-protect
+        (progn
+          (setq ecard-carddav-servers
+                '((:name "Test Server"
+                   :url "https://test.example.com"
+                   :username "test"
+                   :password "secret")))
+          (with-temp-buffer
+            (ecard-display-servers-mode)
+            (should (eq major-mode 'ecard-display-servers-mode))
+            (should (boundp 'tabulated-list-format))
+            (should (vectorp tabulated-list-format))))
+      (setq ecard-carddav-servers saved-servers))))
 
 (ert-deftest ecard-display-test-servers-refresh ()
   "Test that server list can be refreshed."
-  (let ((ecard-display-servers
-         '((:name "Server 1"
-            :url "https://server1.example.com"
-            :username "user1"
-            :password "pass1")
-           (:name "Server 2"
-            :url "https://server2.example.com"
-            :username "user2"
-            :password "pass2"))))
-    (with-temp-buffer
-      (ecard-display-servers-mode)
-      (ecard-display-servers-refresh)
-      (should (equal (length tabulated-list-entries) 2))
-      ;; Verify first entry
-      (let ((entry (car tabulated-list-entries)))
-        (should (plist-member (car entry) :name))))))
+  (let ((saved-servers ecard-carddav-servers))
+    (unwind-protect
+        (progn
+          (setq ecard-carddav-servers
+                '((:name "Server 1"
+                   :url "https://server1.example.com"
+                   :username "user1"
+                   :password "pass1")
+                  (:name "Server 2"
+                   :url "https://server2.example.com"
+                   :username "user2"
+                   :password "pass2")))
+          (with-temp-buffer
+            (ecard-display-servers-mode)
+            (ecard-display-servers-refresh)
+            (should (equal (length tabulated-list-entries) 2))
+            ;; Verify first entry
+            (let ((entry (car tabulated-list-entries)))
+              (should (plist-member (car entry) :name)))))
+      (setq ecard-carddav-servers saved-servers))))
 
 ;;; Test addressbook buffer
 
@@ -815,8 +823,8 @@ at once works correctly."
                                    :url "https://mock.test.local"
                                    :username "testuser"
                                    :password "testpass")))
-          (setq ecard-display-servers (list plist-config))
-          ;; FIX: ecard-display-servers is not a function, use ecard-display instead
+          (setq ecard-carddav-servers (list plist-config))
+          ;; FIX: ecard-carddav-servers is not a function, use ecard-display instead
           (ecard-display)
           (should (get-buffer "*CardDAV Servers*"))
           (with-current-buffer "*CardDAV Servers*"

@@ -22,7 +22,7 @@
 ;;   M-x ecard-display
 ;;
 ;; Server configuration:
-;;   (setq ecard-display-servers
+;;   (setq ecard-carddav-servers
 ;;         '((:name "FastMail"
 ;;            :url "https://carddav.fastmail.com"
 ;;            :username "user@fastmail.com"
@@ -43,52 +43,6 @@
   "Interactive CardDAV browsing interface."
   :group 'ecard
   :prefix "ecard-display-")
-
-(defcustom ecard-display-servers nil
-  "List of CardDAV server configurations.
-
-Each element can be either:
-
-1. A plist with keys:
-   :name STRING - Display name for the server
-   :url STRING - Base URL of CardDAV server
-   :username STRING - Username for authentication
-   :password STRING - Password for authentication
-
-2. An ecard-carddav-server object (created with ecard-carddav-server-create)
-
-Both formats are supported and can be mixed in the same list.
-
-Examples:
-
-  ;; Plist format (simple)
-  (setq ecard-display-servers
-        \\='((:name \"FastMail\"
-           :url \"https://carddav.fastmail.com\"
-           :username \"user@fastmail.com\"
-           :password \"secret\")))
-
-  ;; Server object format (flexible)
-  (setq ecard-display-servers
-        (list (ecard-carddav-server-create
-               :url \"https://carddav.fastmail.com\"
-               :auth (ecard-carddav-auth-basic-create
-                      :username \"user@fastmail.com\"
-                      :password \"secret\"))))
-
-  ;; Mixed format
-  (setq ecard-display-servers
-        (list \\='(:name \"FastMail\" :url \"...\" :username \"...\" :password \"...\")
-              (ecard-carddav-server-create :url \"...\" :auth ...)))"
-  :type '(repeat (choice
-                  (plist :tag "Plist Configuration"
-                         :key-type (choice (const :name)
-                                           (const :url)
-                                           (const :username)
-                                           (const :password))
-                         :value-type string)
-                  (object :tag "Server Object" ecard-carddav-server)))
-  :group 'ecard-display)
 
 (defcustom ecard-display-confirm-delete t
   "Whether to confirm before deleting servers, addressbooks, or contacts."
@@ -176,7 +130,7 @@ fetched later with `ecard-display-contacts-refresh-names'."
   "Refresh the server list."
   (interactive)
   (let ((entries nil))
-    (dolist (config ecard-display-servers)
+    (dolist (config ecard-carddav-servers)
       ;; Normalize config to handle both plists and server objects
       (let* ((normalized (ecard-display--normalize-server-config config))
              (name (plist-get normalized :name))
@@ -220,8 +174,8 @@ fetched later with `ecard-display-contacts-refresh-names'."
                        :url url
                        :username username
                        :password password)))
-    (customize-save-variable 'ecard-display-servers
-                             (append ecard-display-servers (list config)))
+    (customize-save-variable 'ecard-carddav-servers
+                             (append ecard-carddav-servers (list config)))
     (ecard-display-servers-refresh)
     (message "Added server: %s" name)))
 
@@ -234,8 +188,8 @@ fetched later with `ecard-display-contacts-refresh-names'."
     (when (or (not ecard-display-confirm-delete)
               (yes-or-no-p (format "Delete server '%s'? "
                                    (plist-get config :name))))
-      (customize-save-variable 'ecard-display-servers
-                               (cl-remove config ecard-display-servers :test #'equal))
+      (customize-save-variable 'ecard-carddav-servers
+                               (cl-remove config ecard-carddav-servers :test #'equal))
       (ecard-display-servers-refresh)
       (message "Deleted server"))))
 
