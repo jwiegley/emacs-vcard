@@ -8,6 +8,14 @@ Complete vCard 4.0 (RFC 6350) parser and serializer library for Emacs using EIEI
 
 Review the file @ECARD_ANALYSIS.md to understand the architecture and design of this package.
 
+Refer to these specifications before making any changes:
+
+- @RFC/vcard-21.txt
+- @RFC/rfc2425.txt
+- @RFC/rfc2426.txt
+- @RFC/rfc6350.txt
+- @RFC/rfc6352.txt
+
 ## Key Commands
 
 ```bash
