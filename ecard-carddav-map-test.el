@@ -587,7 +587,7 @@
                        ecard-carddav-map-test--addressbook
                        (lambda (resource)
                          (let ((ecard (oref resource ecard)))
-                           (unless (oref ecard note)
+                           (unless (ecard-note ecard)
                              (ecard-add-property ecard 'note "First run")
                              t))))))
           (should (= (plist-get result1 :modified) 5))
@@ -597,7 +597,7 @@
                          ecard-carddav-map-test--addressbook
                          (lambda (resource)
                            (let ((ecard (oref resource ecard)))
-                             (unless (oref ecard note)
+                             (unless (ecard-note ecard)
                                (ecard-add-property ecard 'note "First run")
                                t))))))
             ;; Second run should have 0 modifications because notes already exist
@@ -661,7 +661,7 @@
                       ecard-carddav-map-test--addressbook
                       (lambda (resource)
                         (let ((ecard (oref resource ecard)))
-                          (unless (oref ecard uid)
+                          (unless (ecard-uid ecard)
                             (ecard-add-property ecard 'uid
                                                (format "generated-%s"
                                                       (md5 (ecard-get-property-value ecard 'fn))))
@@ -700,7 +700,7 @@
                       ecard-carddav-map-test--addressbook
                       (lambda (resource)
                         (let ((ecard (oref resource ecard)))
-                          (when-let ((tels (oref ecard tel)))
+                          (when-let ((tels (ecard-tel ecard)))
                             (dolist (tel tels)
                               ;; Simple normalization: remove all non-digits
                               (let ((value (oref tel value)))
@@ -714,7 +714,7 @@
                           ecard-carddav-map-test--addressbook
                           "/addressbooks/user/contacts/contact1.vcf")))
             (let* ((ecard (oref resource ecard))
-                   (tel (car (oref ecard tel))))
+                   (tel (car (ecard-tel ecard))))
               (should (string= (oref tel value) "15551234"))))))
     (ecard-carddav-map-test--teardown)))
 

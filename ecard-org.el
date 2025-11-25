@@ -398,12 +398,12 @@ Example:
       (dolist (slot-mappings reverse-mappings)
         (let* ((ecard-slot (car slot-mappings))
                (_org-mappings (cdr slot-mappings))
-               (ecard-props (ignore-errors (slot-value vc ecard-slot))))
+               (ecard-props (ignore-errors (ecard--slot-value vc ecard-slot))))
 
           ;; Process each property value for this slot
           (dolist (prop ecard-props)
-            (let* ((value (oref prop value))
-                   (params (oref prop parameters))
+            (let* ((value (ecard-property-value prop))
+                   (params (ecard-property-parameters prop))
                    (org-prop (ecard-org--find-org-prop-for-ecard-prop ecard-slot params)))
 
               (if org-prop

@@ -240,7 +240,7 @@ Some content here.
 
 (defun ecard-org-test--property-has-parameter-p (prop param-name param-value)
   "Check if PROP has parameter PARAM-NAME with value PARAM-VALUE."
-  (let ((params (oref prop parameters)))
+  (let ((params (ecard-property-parameters prop)))
     (and params
          (string= (downcase (or (cdr (assoc param-name params)) ""))
                   (downcase param-value)))))
@@ -255,9 +255,9 @@ Some content here.
       (should (string= "John Doe" (ecard-get-property-value vc 'fn)))
       (should (string= "john@example.com" (ecard-get-property-value vc 'email)))
       ;; Check tel property with TYPE=cell parameter
-      (let ((tel-props (oref vc tel)))
+      (let ((tel-props (ecard-tel vc)))
         (should (= (length tel-props) 1))
-        (should (string= "+1-555-1234" (oref (car tel-props) value)))
+        (should (string= "+1-555-1234" (ecard-property-value (car tel-props))))
         (should (ecard-org-test--property-has-parameter-p
                  (car tel-props) "TYPE" "cell"))))))
 
@@ -331,8 +331,8 @@ Some content here.
       (should vc)
       (should (string= "Minimal Contact" (ecard-get-property-value vc 'fn)))
       ;; Should only have FN property
-      (should-not (oref vc email))
-      (should-not (oref vc tel)))))
+      (should-not (ecard-email vc))
+      (should-not (ecard-tel vc)))))
 
 (ert-deftest ecard-org-test-entry-without-ecard-marker-required ()
   "Test entry without VCARD marker when require-ecard-property is t."
@@ -365,8 +365,8 @@ Org ID property contains plain UUID, vCard UID gets urn:uuid: prefix."
       ;; vCard UID should have urn:uuid: prefix added
       (should (string= "urn:uuid:test-12345" (ecard-get-property-value vc 'uid)))
       ;; UID should have no parameters
-      (let ((uid-prop (car (oref vc uid))))
-        (should-not (oref uid-prop parameters))))))
+      (let ((uid-prop (car (ecard-uid vc))))
+        (should-not (ecard-property-parameters uid-prop))))))
 
 (ert-deftest ecard-org-test-uid-reverse-mapping ()
   "Test reverse mapping from vCard UID to Org ID property.
@@ -404,8 +404,8 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
       (should vc)
       (should (string= "test@example.com" (ecard-get-property-value vc 'email)))
       ;; Simple EMAIL should have no parameters
-      (let ((email-prop (car (oref vc email))))
-        (should-not (oref email-prop parameters))))))
+      (let ((email-prop (car (ecard-email vc))))
+        (should-not (ecard-property-parameters email-prop))))))
 
 (ert-deftest ecard-org-test-parameterized-email-home ()
   "Test EMAIL_HOME property with TYPE parameter."
@@ -413,8 +413,8 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
       "* Test\n:PROPERTIES:\n:VCARD: t\n:EMAIL_HOME: home@example.com\n:END:\n"
     (let ((vc (ecard-org-entry-to-ecard)))
       (should vc)
-      (let ((email-prop (car (oref vc email))))
-        (should (string= "home@example.com" (oref email-prop value)))
+      (let ((email-prop (car (ecard-email vc))))
+        (should (string= "home@example.com" (ecard-property-value email-prop)))
         (should (ecard-org-test--property-has-parameter-p
                  email-prop "TYPE" "home"))))))
 
@@ -424,8 +424,8 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
       "* Test\n:PROPERTIES:\n:VCARD: t\n:EMAIL_WORK: work@example.com\n:END:\n"
     (let ((vc (ecard-org-entry-to-ecard)))
       (should vc)
-      (let ((email-prop (car (oref vc email))))
-        (should (string= "work@example.com" (oref email-prop value)))
+      (let ((email-prop (car (ecard-email vc))))
+        (should (string= "work@example.com" (ecard-property-value email-prop)))
         (should (ecard-org-test--property-has-parameter-p
                  email-prop "TYPE" "work"))))))
 
@@ -433,15 +433,15 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
   "Test multiple email addresses with different parameters."
   (ecard-org-test-with-temp-org-buffer ecard-org-test-complex-entry
     (let* ((vc (ecard-org-entry-to-ecard))
-           (email-props (oref vc email)))
+           (email-props (ecard-email vc)))
       (should (= (length email-props) 3))
       ;; Check we have all three types
-      (should (cl-some (lambda (p) (string= (oref p value) "jane@example.com"))
+      (should (cl-some (lambda (p) (string= (ecard-property-value p) "jane@example.com"))
                        email-props))
-      (should (cl-some (lambda (p) (and (string= (oref p value) "jane.smith@company.com")
+      (should (cl-some (lambda (p) (and (string= (ecard-property-value p) "jane.smith@company.com")
                                         (ecard-org-test--property-has-parameter-p p "TYPE" "work")))
                        email-props))
-      (should (cl-some (lambda (p) (and (string= (oref p value) "jane@home.com")
+      (should (cl-some (lambda (p) (and (string= (ecard-property-value p) "jane@home.com")
                                         (ecard-org-test--property-has-parameter-p p "TYPE" "home")))
                        email-props)))))
 
@@ -485,59 +485,59 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
   "Test ADDRESS_HOME structured property."
   (ecard-org-test-with-temp-org-buffer ecard-org-test-structured-address
     (let* ((vc (ecard-org-entry-to-ecard))
-           (adr-props (oref vc adr))
+           (adr-props (ecard-adr vc))
            (home-adr (cl-find-if (lambda (p)
                                    (ecard-org-test--property-has-parameter-p p "TYPE" "home"))
                                  adr-props)))
       (should home-adr)
       ;; The parser splits on semicolons - empty components are dropped by split-string
       (should (equal '("123 Main St" "Anytown" "CA" "12345" "USA")
-                     (oref home-adr value))))))
+                     (ecard-property-value home-adr))))))
 
 (ert-deftest ecard-org-test-address-work ()
   "Test ADDRESS_WORK structured property."
   (ecard-org-test-with-temp-org-buffer ecard-org-test-structured-address
     (let* ((vc (ecard-org-entry-to-ecard))
-           (adr-props (oref vc adr))
+           (adr-props (ecard-adr vc))
            (work-adr (cl-find-if (lambda (p)
                                    (ecard-org-test--property-has-parameter-p p "TYPE" "work"))
                                  adr-props)))
       (should work-adr)
       (should (equal '("Suite 100" "Acme Corp" "456 Business Ave" "Metro City" "NY" "54321" "USA")
-                     (oref work-adr value))))))
+                     (ecard-property-value work-adr))))))
 
 (ert-deftest ecard-org-test-phone-mobile ()
   "Test MOBILE phone mapping."
   (ecard-org-test-with-temp-org-buffer ecard-org-test-phone-variants
     (let* ((vc (ecard-org-entry-to-ecard))
-           (tel-props (oref vc tel))
+           (tel-props (ecard-tel vc))
            (mobile (cl-find-if (lambda (p)
                                  (ecard-org-test--property-has-parameter-p p "TYPE" "cell"))
                                tel-props)))
       (should mobile)
-      (should (string= "+1-555-0002" (oref mobile value))))))
+      (should (string= "+1-555-0002" (ecard-property-value mobile))))))
 
 (ert-deftest ecard-org-test-phone-work ()
   "Test PHONE_WORK mapping."
   (ecard-org-test-with-temp-org-buffer ecard-org-test-phone-variants
     (let* ((vc (ecard-org-entry-to-ecard))
-           (tel-props (oref vc tel))
+           (tel-props (ecard-tel vc))
            (work-phone (cl-find-if (lambda (p)
                                      (ecard-org-test--property-has-parameter-p p "TYPE" "work,voice"))
                                    tel-props)))
       (should work-phone)
-      (should (string= "+1-555-0003" (oref work-phone value))))))
+      (should (string= "+1-555-0003" (ecard-property-value work-phone))))))
 
 (ert-deftest ecard-org-test-fax ()
   "Test FAX mapping."
   (ecard-org-test-with-temp-org-buffer ecard-org-test-phone-variants
     (let* ((vc (ecard-org-entry-to-ecard))
-           (tel-props (oref vc tel))
+           (tel-props (ecard-tel vc))
            (fax (cl-find-if (lambda (p)
                               (ecard-org-test--property-has-parameter-p p "TYPE" "fax"))
                             tel-props)))
       (should fax)
-      (should (string= "+1-555-0005" (oref fax value))))))
+      (should (string= "+1-555-0005" (ecard-property-value fax))))))
 
 (ert-deftest ecard-org-test-all-standard-properties ()
   "Test all standard property mappings in one entry."
@@ -546,8 +546,8 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
       (should (string= "Jane Smith" (ecard-get-property-value vc 'fn)))
       (should (equal '("Smith" "Jane" "Marie" "Dr." "PhD")
                      (ecard-get-property-value vc 'n)))
-      (should (= 3 (length (oref vc email))))
-      (should (= 2 (length (oref vc tel))))
+      (should (= 3 (length (ecard-email vc))))
+      (should (= 2 (length (ecard-tel vc))))
       (should (equal '("Acme Corporation" "Engineering" "Software")
                      (ecard-get-property-value vc 'org)))
       (should (string= "Senior Software Engineer" (ecard-get-property-value vc 'title)))
@@ -720,7 +720,7 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
       (should (string= "Test" (ecard-get-property-value vc 'fn)))
       ;; Empty/whitespace-only properties are still added by org-entry-properties
       ;; They get empty string values
-      (if (oref vc email)
+      (if (ecard-email vc)
           (should (string-empty-p (ecard-get-property-value vc 'email)))
         ;; Some versions might not include them
         t))))
@@ -805,7 +805,7 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
     (ecard-org-test-with-temp-org-buffer
         "* Test\n:PROPERTIES:\n:VCARD: t\n:CUSTOM_FIELD: custom value\n:END:\n"
       (let* ((vc (ecard-org-entry-to-ecard))
-             (extended (oref vc extended)))
+             (extended (ecard-extended vc)))
         (should vc)
         (should-not extended)))))
 
@@ -913,7 +913,7 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
   (let ((ecard-org-export-unknown-properties nil))
     (ecard-org-test-with-temp-org-buffer
         "* Test\n:PROPERTIES:\n:VCARD: t\n:CUSTOM: value\n:END:\n"
-      (should-not (oref (ecard-org-entry-to-ecard) extended)))))
+      (should-not (ecard-extended (ecard-org-entry-to-ecard))))))
 
 (ert-deftest ecard-org-test-toggle-import-unmapped-properties ()
   "Test toggling import-unmapped-properties setting."
@@ -936,8 +936,8 @@ Org ID uses plain UUID, vCard UID has urn:uuid: prefix, round-trip preserves bot
     (ecard-org-test-with-temp-org-buffer
         "* Test\n:PROPERTIES:\n:VCARD: t\n:CUSTOM_EMAIL: custom@example.com\n:END:\n"
       (let* ((vc (ecard-org-entry-to-ecard))
-             (email-prop (car (oref vc email))))
-        (should (string= "custom@example.com" (oref email-prop value)))
+             (email-prop (car (ecard-email vc))))
+        (should (string= "custom@example.com" (ecard-property-value email-prop)))
         (should (ecard-org-test--property-has-parameter-p
                  email-prop "TYPE" "custom"))))))
 

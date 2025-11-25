@@ -31,7 +31,7 @@
 ;;    addressbook
 ;;    (lambda (resource)
 ;;      (let ((ecard (oref resource ecard)))
-;;        (unless (oref ecard note)
+;;        (unless (ecard-note ecard)
 ;;          (ecard-add-property ecard 'note "Imported from sync")
 ;;          t))))  ; Return t to indicate modification
 ;;
@@ -40,7 +40,7 @@
 ;;    addressbook
 ;;    (lambda (resource)
 ;;      (let ((ecard (oref resource ecard)))
-;;        (unless (oref ecard email)
+;;        (unless (ecard-email ecard)
 ;;          :delete))))  ; Return :delete to delete resource
 ;;
 ;;   ;; Fix phone number format with progress reporting
@@ -48,7 +48,7 @@
 ;;    addressbook
 ;;    (lambda (resource)
 ;;      (let ((ecard (oref resource ecard)))
-;;        (when-let ((tels (oref ecard tel)))
+;;        (when-let ((tels (ecard-tel ecard)))
 ;;          (dolist (tel tels)
 ;;            (oset tel value (normalize-phone (oref tel value))))
 ;;          t)))
@@ -339,7 +339,7 @@ Example:
    addressbook
    (lambda (resource)
      (let ((ecard (oref resource ecard)))
-       (unless (oref ecard note)
+       (unless (ecard-note ecard)
          (ecard-add-property ecard \\='note \"Imported\")
          t)))
    :progress-callback

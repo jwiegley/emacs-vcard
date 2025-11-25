@@ -431,16 +431,16 @@ current page in a single HTTP request."
 (defun ecard-display--get-fn (ecard-obj)
   "Get formatted name from ECARD-OBJ."
   (if ecard-obj
-      (let ((fn-props (oref ecard-obj fn)))
+      (let ((fn-props (ecard-fn ecard-obj)))
         (if fn-props
-            (oref (car fn-props) value)
+            (ecard-property-value (car fn-props))
           "Unknown"))
     "Unknown"))
 
 (defun ecard-display--get-first-email (ecard-obj)
   "Get first email from ECARD-OBJ."
   (if ecard-obj
-      (let ((emails (oref ecard-obj email)))
+      (let ((emails (ecard-email ecard-obj)))
         (if emails
             (oref (car emails) value)
           ""))
@@ -449,7 +449,7 @@ current page in a single HTTP request."
 (defun ecard-display--get-first-tel (ecard-obj)
   "Get first telephone from ECARD-OBJ."
   (if ecard-obj
-      (let ((tels (oref ecard-obj tel)))
+      (let ((tels (ecard-tel ecard-obj)))
         (if tels
             (oref (car tels) value)
           ""))
@@ -533,7 +533,7 @@ Fetches full vCard data if not already loaded."
       (message "Loading contact...")
       (condition-case err
           (let ((fetched (ecard-carddav-get-resource ecard-display--addressbook
-                                                       (oref resource url))))
+                                                       (ecard-url resource))))
             (oset resource ecard (oref fetched ecard))
             (oset resource etag (oref fetched etag))
             (message "Loaded contact"))
@@ -616,7 +616,7 @@ Fetches full vCard data if not already loaded."
         (condition-case err
             (progn
               (ecard-carddav-delete-resource ecard-display--addressbook
-                                             (oref resource url)
+                                             (ecard-url resource)
                                              (oref resource etag))
               (ecard-display-contacts-refresh)
               (message "Deleted contact"))
@@ -678,7 +678,7 @@ Fetches full vCard data if not already loaded."
     (widget-insert "\n\n")
 
     ;; UID
-    (let ((uids (oref ecard-obj uid)))
+    (let ((uids (ecard-uid ecard-obj)))
       (when uids
         (widget-insert (propertize "UID: " 'face 'bold))
         (widget-insert (ecard-display--safe-string (oref (car uids) value)))
@@ -690,9 +690,9 @@ Fetches full vCard data if not already loaded."
     (widget-insert "\n\n")
 
     ;; N (structured name)
-    (let ((n-props (oref ecard-obj n)))
+    (let ((n-props (ecard-n ecard-obj)))
       (when n-props
-        (let* ((n-val (oref (car n-props) value))
+        (let* ((n-val (ecard-property-value (car n-props)))
                (family (ecard-display--safe-string (if (listp n-val) (nth 0 n-val) "")))
                (given (ecard-display--safe-string (if (listp n-val) (nth 1 n-val) "")))
                (additional (ecard-display--safe-string (if (listp n-val) (nth 2 n-val) "")))
@@ -720,11 +720,11 @@ Fetches full vCard data if not already loaded."
 
     ;; Emails
     (widget-insert (propertize "Emails:\n" 'face 'bold))
-    (let ((emails (oref ecard-obj email)))
+    (let ((emails (ecard-email ecard-obj)))
       (if emails
           (dolist (email-prop emails)
             (let ((type (ecard-display--safe-string (ecard-display--get-param email-prop "TYPE")))
-                  (value (ecard-display--safe-string (oref email-prop value))))
+                  (value (ecard-display--safe-string (ecard-property-value email-prop))))
               (widget-insert (format "  [%s] %s\n"
                                      (if (string-empty-p type) "other" type)
                                      value))))
@@ -733,11 +733,11 @@ Fetches full vCard data if not already loaded."
 
     ;; Telephones
     (widget-insert (propertize "Telephones:\n" 'face 'bold))
-    (let ((tels (oref ecard-obj tel)))
+    (let ((tels (ecard-tel ecard-obj)))
       (if tels
           (dolist (tel-prop tels)
             (let ((type (ecard-display--safe-string (ecard-display--get-param tel-prop "TYPE")))
-                  (value (ecard-display--safe-string (oref tel-prop value))))
+                  (value (ecard-display--safe-string (ecard-property-value tel-prop))))
               (widget-insert (format "  [%s] %s\n"
                                      (if (string-empty-p type) "other" type)
                                      value))))
@@ -745,12 +745,12 @@ Fetches full vCard data if not already loaded."
     (widget-insert "\n")
 
     ;; Addresses
-    (let ((addrs (oref ecard-obj adr)))
+    (let ((addrs (ecard-adr ecard-obj)))
       (when addrs
         (widget-insert (propertize "Addresses:\n" 'face 'bold))
         (dolist (adr-prop addrs)
           (let ((type (ecard-display--safe-string (ecard-display--get-param adr-prop "TYPE")))
-                (value (oref adr-prop value)))
+                (value (ecard-property-value adr-prop)))
             (widget-insert (format "  [%s] " (if (string-empty-p type) "other" type)))
             (if (listp value)
                 (let ((street (ecard-display--safe-string (nth 2 value)))
@@ -767,21 +767,21 @@ Fetches full vCard data if not already loaded."
         (widget-insert "\n")))
 
     ;; Organization
-    (let ((orgs (oref ecard-obj org)))
+    (let ((orgs (ecard-org ecard-obj)))
       (when orgs
         (widget-insert (propertize "Organization: " 'face 'bold))
         (widget-insert (ecard-display--safe-string (oref (car orgs) value)))
         (widget-insert "\n")))
 
     ;; Title
-    (let ((titles (oref ecard-obj title)))
+    (let ((titles (ecard-title ecard-obj)))
       (when titles
         (widget-insert (propertize "Title: " 'face 'bold))
         (widget-insert (ecard-display--safe-string (oref (car titles) value)))
         (widget-insert "\n")))
 
     ;; Note
-    (let ((notes (oref ecard-obj note)))
+    (let ((notes (ecard-note ecard-obj)))
       (when notes
         (widget-insert "\n")
         (widget-insert (propertize "Notes:\n" 'face 'bold))
@@ -798,7 +798,7 @@ Fetches full vCard data if not already loaded."
 
 (defun ecard-display--get-param (prop param-name)
   "Get parameter PARAM-NAME from property PROP."
-  (let ((params (oref prop parameters)))
+  (let ((params (ecard-property-parameters prop)))
     (cdr (assoc param-name params))))
 
 (defun ecard-display-contact-save ()
@@ -810,7 +810,7 @@ Fetches full vCard data if not already loaded."
   (condition-case err
       (let* ((resource ecard-display--resource)
              (ecard-obj (oref resource ecard))
-             (url (oref resource url))
+             (url (ecard-url resource))
              (etag (oref resource etag)))
         (ecard-carddav-put-ecard ecard-display--addressbook url ecard-obj etag)
         (setq ecard-display--modified nil
@@ -842,7 +842,7 @@ Fetches full vCard data if not already loaded."
       (condition-case err
           (progn
             (ecard-carddav-delete-resource ecard-display--addressbook
-                                           (oref ecard-display--resource url)
+                                           (ecard-url ecard-display--resource)
                                            (oref ecard-display--resource etag))
             (message "Deleted contact")
             (kill-buffer)
@@ -916,7 +916,7 @@ Returns a plist suitable for use in ecard-display."
   (cond
    ;; Already an ecard-carddav-server object - extract info
    ((ecard-carddav-server-p config)
-    (let ((url (oref config url))
+    (let ((url (ecard-url config))
           (auth (oref config auth)))
       (list :name (or url "Unnamed Server")
             :url url

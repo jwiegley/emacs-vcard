@@ -123,75 +123,75 @@ ARGS are keyword arguments compatible with the old struct."
           vc)
 
       ;; Create new vcard
-      (let ((vc (make-instance 'ecard)))
+      (let ((vc (ecard)))
         ;; Set VERSION
-        (oset vc version (list (make-instance 'ecard-property
-                                              :name "VERSION"
-                                              :value "4.0")))
+        (setf (ecard-version vc) (list (ecard-property
+                                         :name "VERSION"
+                                         :value "4.0")))
 
         ;; Set FN if provided
         (when fn
-          (oset vc fn (list (make-instance 'ecard-property
-                                           :name "FN"
-                                           :value fn))))
+          (setf (ecard-fn vc) (list (ecard-property
+                                      :name "FN"
+                                      :value fn))))
 
         ;; Set UID if provided
         (when uid
-          (oset vc uid (list (make-instance 'ecard-property
-                                            :name "UID"
-                                            :value uid))))
+          (setf (ecard-uid vc) (list (ecard-property
+                                       :name "UID"
+                                       :value uid))))
 
         ;; Set ORG if provided
         (when org
-          (oset vc org (list (make-instance 'ecard-property
+          (setf (ecard-org vc) (list (ecard-property
                                             :name "ORG"
                                             :value (if (listp org) org (list org))))))
 
         ;; Set TITLE if provided
         (when title
-          (oset vc title (list (make-instance 'ecard-property
+          (setf (ecard-title vc) (list (ecard-property
                                               :name "TITLE"
                                               :value title))))
 
         ;; Set NOTE if provided
         (when note
-          (oset vc note (list (make-instance 'ecard-property
+          (setf (ecard-note vc) (list (ecard-property
                                              :name "NOTE"
                                              :value note))))
 
         ;; Set N if provided
         (when n
-          (oset vc n (list (make-instance 'ecard-property
+          (setf (ecard-n vc) (list (ecard-property
                                           :name "N"
                                           :value (if (listp n) n
                                                   (list n "" "" "" ""))))))
 
         ;; Set EMAIL if provided
         (when email
-          (oset vc email
+          (setf (ecard-email vc)
                 (mapcar (lambda (e)
                           (if (ecard-tools-email-p e)
-                              (make-instance 'ecard-property
+                              (ecard-property
                                             :name "EMAIL"
                                             :value (ecard-tools-email-value e)
                                             :parameters (when (ecard-tools-email-type e)
                                                          `(("TYPE" . ,(symbol-name (ecard-tools-email-type e))))))
-                            (make-instance 'ecard-property
+                            (ecard-property
                                           :name "EMAIL"
                                           :value e)))
                         (if (listp email) email (list email)))))
 
         ;; Set TEL if provided
         (when tel
-          (oset vc tel
+          (setf (ecard-tel vc)
                 (mapcar (lambda (t)
                           (if (ecard-tools-tel-p t)
-                              (make-instance 'ecard-property
+                              (ecard-property
                                             :name "TEL"
                                             :value (ecard-tools-tel-value t)
                                             :parameters (when (ecard-tools-tel-type t)
                                                          `(("TYPE" . ,(symbol-name (ecard-tools-tel-type t))))))
-                            (make-instance 'ecard-property
+                            (ecard-property
                                           :name "TEL"
                                           :value t)))
                         (if (listp tel) tel (list tel)))))
@@ -204,12 +204,16 @@ ARGS are keyword arguments compatible with the old struct."
 
 (defun ecard-tools--copy-vcard-adapter (vc)
   "Create a copy of ecard object VC."
-  (let ((new-vc (make-instance 'ecard)))
-    ;; Copy all slots
-    (dolist (slot (eieio-class-slots 'ecard))
-      (let ((slot-name (eieio-slot-descriptor-name slot)))
-        (when (slot-boundp vc slot-name)
-          (oset new-vc slot-name (oref vc slot-name)))))
+  (let ((new-vc (ecard)))
+    ;; Copy all 36 vCard 4.0 property slots
+    (dolist (slot '(version source kind xml fn n nickname photo bday anniversary
+                    gender adr tel email impp lang geo tz title role logo org
+                    member related categories note prodid rev sound uid
+                    clientpidmap url key fburl caladruri caluri extended))
+      (when (ecard--slot-exists-p vc slot)
+        (let ((value (ecard--slot-value vc slot)))
+          (when value
+            (ecard--set-slot-value new-vc slot value)))))
     new-vc))
 
 ;; Create aliases
@@ -227,7 +231,7 @@ ARGS are keyword arguments compatible with the old struct."
 (defun ecard-tools-vcard-uid (vc)
   "Get UID from ecard object VC."
   ;; The uid field may contain a list of property objects or be stored differently
-  (let ((uid-val (oref vc uid)))
+  (let ((uid-val (ecard-uid vc)))
     (cond
      ;; If it's a string, return it directly
      ((stringp uid-val) uid-val)
@@ -235,7 +239,7 @@ ARGS are keyword arguments compatible with the old struct."
      ((and (listp uid-val) (car uid-val))
       (let ((first-prop (car uid-val)))
         (if (ecard-property-p first-prop)
-            (oref first-prop value)
+            (ecard-property-value first-prop)
           ;; Fallback to the helper function
           (ecard-get-property-value vc 'uid))))
      ;; Use helper as fallback
@@ -244,11 +248,11 @@ ARGS are keyword arguments compatible with the old struct."
 (defun ecard-tools-vcard-fn (vc)
   "Get formatted name from ecard object VC."
   ;; The fn field contains a list of property objects
-  (let ((fn-props (oref vc fn)))
+  (let ((fn-props (ecard-fn vc)))
     (when (and fn-props (listp fn-props) (car fn-props))
       (let ((first-prop (car fn-props)))
         (if (ecard-property-p first-prop)
-            (oref first-prop value)
+            (ecard-property-value first-prop)
           ;; Fallback to the helper function
           (ecard-get-property-value vc 'fn))))))
 
@@ -259,7 +263,7 @@ ARGS are keyword arguments compatible with the old struct."
 (defun ecard-tools-vcard-org (vc)
   "Get organization from ecard object VC."
   ;; The org field might contain structured data as a list or a property list
-  (let ((org-val (oref vc org)))
+  (let ((org-val (ecard-org vc)))
     (cond
      ((null org-val) nil)
      ((stringp org-val) org-val)
@@ -280,7 +284,7 @@ ARGS are keyword arguments compatible with the old struct."
 (defun ecard-tools-vcard-title (vc)
   "Get title from ecard object VC."
   ;; Handle both direct string and property list formats
-  (let ((title-val (oref vc title)))
+  (let ((title-val (ecard-title vc)))
     (cond
      ((null title-val) nil)
      ((stringp title-val) title-val)
@@ -291,7 +295,7 @@ ARGS are keyword arguments compatible with the old struct."
 (defun ecard-tools-vcard-note (vc)
   "Get note from ecard object VC."
   ;; Handle both direct string and property list formats
-  (let ((note-val (oref vc note)))
+  (let ((note-val (ecard-note vc)))
     (cond
      ((null note-val) nil)
      ((stringp note-val) note-val)
@@ -310,7 +314,7 @@ ARGS are keyword arguments compatible with the old struct."
 (defun ecard-tools-vcard-bday (vc)
   "Get birthday from ecard object VC."
   ;; Handle both direct string and property list formats
-  (let ((bday-val (oref vc bday)))
+  (let ((bday-val (ecard-bday vc)))
     (cond
      ((null bday-val) nil)
      ((stringp bday-val) bday-val)
@@ -329,10 +333,10 @@ ARGS are keyword arguments compatible with the old struct."
 
 (defun ecard-tools-vcard-email (vc)
   "Get email list from ecard object VC as ecard-tools-email structs."
-  (let ((emails (oref vc email)))
+  (let ((emails (ecard-email vc)))
     (when emails
       (mapcar (lambda (prop)
-                (let* ((params (oref prop parameters))
+                (let* ((params (ecard-property-parameters prop))
                        (type-param (assoc "TYPE" params))
                        (type-value (when type-param
                                     (cdr type-param)))
@@ -341,17 +345,17 @@ ARGS are keyword arguments compatible with the old struct."
                                           (replace-regexp-in-string
                                            "^\"\\|\"$" "" type-value))))))
                   (ecard-tools-email-create
-                   :value (oref prop value)
+                   :value (ecard-property-value prop)
                    :type type-sym
                    :params params)))
               emails))))
 
 (defun ecard-tools-vcard-tel (vc)
   "Get telephone list from ecard object VC as ecard-tools-tel structs."
-  (let ((tels (oref vc tel)))
+  (let ((tels (ecard-tel vc)))
     (when tels
       (mapcar (lambda (prop)
-                (let* ((params (oref prop parameters))
+                (let* ((params (ecard-property-parameters prop))
                        (type-param (assoc "TYPE" params))
                        (type-value (when type-param
                                     (cdr type-param)))
@@ -360,18 +364,18 @@ ARGS are keyword arguments compatible with the old struct."
                                           (replace-regexp-in-string
                                            "^\"\\|\"$" "" type-value))))))
                   (ecard-tools-tel-create
-                   :value (oref prop value)
+                   :value (ecard-property-value prop)
                    :type type-sym
                    :params params)))
               tels))))
 
 (defun ecard-tools-vcard-adr (vc)
   "Get address list from ecard object VC as ecard-tools-adr structs."
-  (let ((adrs (oref vc adr)))
+  (let ((adrs (ecard-adr vc)))
     (when adrs
       (mapcar (lambda (prop)
-                (let* ((val (oref prop value))
-                       (params (oref prop parameters))
+                (let* ((val (ecard-property-value prop))
+                       (params (ecard-property-parameters prop))
                        (type-param (assoc "TYPE" params))
                        (type-value (when type-param
                                     (cdr type-param)))
@@ -392,7 +396,7 @@ ARGS are keyword arguments compatible with the old struct."
 
 (defun ecard-tools-vcard-properties (vc)
   "Get extended properties from ecard object VC."
-  (oref vc extended))
+  (ecard-extended vc))
 
 (defun ecard-tools-vcard-raw (vc)
   "Get raw vCard text from ecard object VC."
@@ -464,7 +468,7 @@ ARGS are keyword arguments compatible with the old struct."
 (defun ecard-tools--set-vcard-email (vc value)
   "Set email list in ecard object VC to VALUE."
   (let ((props (mapcar (lambda (email)
-                         (make-instance 'ecard-property
+                         (ecard-property
                                        :name "EMAIL"
                                        :value (if (ecard-tools-email-p email)
                                                  (ecard-tools-email-value email)
@@ -473,13 +477,13 @@ ARGS are keyword arguments compatible with the old struct."
                                                             (ecard-tools-email-type email))
                                                     `(("TYPE" . ,(symbol-name (ecard-tools-email-type email)))))))
                       (if (listp value) value (list value)))))
-    (oset vc email props))
+    (setf (ecard-email vc) props))
   value)
 
 (defun ecard-tools--set-vcard-tel (vc value)
   "Set telephone list in ecard object VC to VALUE."
   (let ((props (mapcar (lambda (tel)
-                         (make-instance 'ecard-property
+                         (ecard-property
                                        :name "TEL"
                                        :value (if (ecard-tools-tel-p tel)
                                                  (ecard-tools-tel-value tel)
@@ -488,14 +492,14 @@ ARGS are keyword arguments compatible with the old struct."
                                                             (ecard-tools-tel-type tel))
                                                     `(("TYPE" . ,(symbol-name (ecard-tools-tel-type tel)))))))
                       (if (listp value) value (list value)))))
-    (oset vc tel props))
+    (setf (ecard-tel vc) props))
   value)
 
 (defun ecard-tools--set-vcard-adr (vc value)
   "Set address list in ecard object VC to VALUE."
   (let ((props (mapcar (lambda (adr)
                          (if (ecard-tools-adr-p adr)
-                             (make-instance 'ecard-property
+                             (ecard-property
                                            :name "ADR"
                                            :value (list (ecard-tools-adr-po-box adr)
                                                        (ecard-tools-adr-extended adr)
@@ -506,11 +510,11 @@ ARGS are keyword arguments compatible with the old struct."
                                                        (ecard-tools-adr-country adr))
                                            :parameters (when (ecard-tools-adr-type adr)
                                                         `(("TYPE" . ,(symbol-name (ecard-tools-adr-type adr))))))
-                           (make-instance 'ecard-property
+                           (ecard-property
                                          :name "ADR"
                                          :value adr)))
                       (if (listp value) value (list value)))))
-    (oset vc adr props))
+    (setf (ecard-adr vc) props))
   value)
 
 (defun ecard-tools--set-vcard-modified-p (vc value)
@@ -592,7 +596,7 @@ ARGS are keyword arguments compatible with the old struct."
 
 (defun ecard-tools--get-extended-property (vc property)
   "Get extended PROPERTY from ecard object VC."
-  (let ((extended (oref vc extended)))
+  (let ((extended (ecard-extended vc)))
     (let ((val (cdr (assoc property extended))))
       (if (eq val nil)
           (if (eq property 'valid-p) t nil)
@@ -606,11 +610,11 @@ Store internal metadata separately so it doesn't interfere with serialization."
   ;; Instead, store them in a separate place or skip them
   (unless (memq property '(file-path valid-p modified-p raw))
     ;; Only store actual vCard extended properties
-    (let* ((extended (oref vc extended))
+    (let* ((extended (ecard-extended vc))
            (existing (assoc property extended)))
       (if existing
           (setcdr existing value)
-        (oset vc extended (cons (cons property value) extended))))))
+        (setf (ecard-extended vc) (cons (cons property value) extended))))))
 
 ;; ============================================================================
 ;; Parsing and Serialization
@@ -668,15 +672,15 @@ function is called."
 (defun ecard-tools--create-minimal-vcard-from-text (text)
   "Create a minimal vcard by extracting what fields we can from TEXT.
 Used when parsing fails."
-  (let ((vc (make-instance 'ecard)))
+  (let ((vc (ecard)))
     ;; Set VERSION
-    (oset vc version (list (make-instance 'ecard-property
+    (setf (ecard-version vc) (list (ecard-property
                                           :name "VERSION"
                                           :value "4.0")))
     ;; Try to extract EMAIL if present
     (when (string-match "EMAIL[^:]*:\\s*\\([^\n\r]+\\)" text)
       (let ((email (match-string 1 text)))
-        (oset vc email (list (make-instance 'ecard-property
+        (setf (ecard-email vc) (list (ecard-property
                                             :name "EMAIL"
                                             :value (string-trim email))))))
     vc))
@@ -699,21 +703,21 @@ This is a helper function primarily used in tests."
                 (ecard-create :fn fn)
               ;; Create without FN by using a temporary one then removing it
               (let ((temp-vc (ecard-create :fn "TEMP")))
-                (oset temp-vc fn nil)
+                (setf (ecard-fn temp-vc) nil)
                 temp-vc))))
     ;; Set basic properties - wrap strings in ecard-property objects
     (when uid
-      (oset vc uid (list (ecard-property :name "UID" :value uid))))
+      (setf (ecard-uid vc) (list (ecard-property :name "UID" :value uid))))
     (when n
-      (oset vc n (list (ecard-property :name "N" :value n))))
+      (setf (ecard-n vc) (list (ecard-property :name "N" :value n))))
     (when org
-      (oset vc org (list (ecard-property :name "ORG" :value (if (stringp org) (list org) org)))))
+      (setf (ecard-org vc) (list (ecard-property :name "ORG" :value (if (stringp org) (list org) org)))))
     (when title
-      (oset vc title (list (ecard-property :name "TITLE" :value title))))
+      (setf (ecard-title vc) (list (ecard-property :name "TITLE" :value title))))
     (when note
-      (oset vc note (list (ecard-property :name "NOTE" :value note))))
+      (setf (ecard-note vc) (list (ecard-property :name "NOTE" :value note))))
     (when bday
-      (oset vc bday (list (ecard-property :name "BDAY" :value bday))))
+      (setf (ecard-bday vc) (list (ecard-property :name "BDAY" :value bday))))
 
     ;; Set multi-valued properties - filter out empty values
     (when email
@@ -726,13 +730,13 @@ This is a helper function primarily used in tests."
                                   (and val (not (equal val "")))))
                               email)))
         (when non-empty-email
-          (oset vc email
+          (setf (ecard-email vc)
                 (mapcar (lambda (e)
                           (if (ecard-tools-email-p e)
                               ;; Convert ecard-tools-email to ecard property
                               (let ((prop (ecard-property :name "EMAIL" :value (ecard-tools-email-value e))))
                                 (when (ecard-tools-email-type e)
-                                  (oset prop parameters
+                                  (setf (ecard-property-parameters prop)
                                         `(("TYPE" . ,(symbol-name (ecard-tools-email-type e))))))
                                 prop)
                             e))
@@ -748,13 +752,13 @@ This is a helper function primarily used in tests."
                                 (and val (not (equal val "")))))
                             tel)))
         (when non-empty-tel
-          (oset vc tel
+          (setf (ecard-tel vc)
                 (mapcar (lambda (t)
                           (if (ecard-tools-tel-p t)
                               ;; Convert ecard-tools-tel to ecard property
                               (let ((prop (ecard-property :name "TEL" :value (ecard-tools-tel-value t))))
                                 (when (ecard-tools-tel-type t)
-                                  (oset prop parameters
+                                  (setf (ecard-property-parameters prop)
                                         `(("TYPE" . ,(symbol-name (ecard-tools-tel-type t))))))
                                 prop)
                             t))
@@ -762,12 +766,12 @@ This is a helper function primarily used in tests."
 
     (when adr
       ;; ADR can be complex, check if it needs wrapping
-      (oset vc adr (if (and adr (not (ecard-property-p (car-safe adr))))
+      (setf (ecard-adr vc) (if (and adr (not (ecard-property-p (car-safe adr))))
                        (list (ecard-property :name "ADR" :value adr))
                      adr)))
 
     (when url
-      (oset vc url (if (stringp url)
+      (setf (ecard-url vc) (if (stringp url)
                        (list (ecard-property :name "URL" :value url))
                      url)))
 
@@ -787,46 +791,46 @@ This is a helper function primarily used in tests."
     (cl-flet ((copy-property (prop)
                 (if (ecard-property-p prop)
                     (let ((new-prop (ecard-property
-                                    :name (oref prop name)
-                                    :value (oref prop value))))
-                      (when (oref prop parameters)
-                        (oset new-prop parameters (copy-sequence (oref prop parameters))))
+                                    :name (ecard-property-name prop)
+                                    :value (ecard-property-value prop))))
+                      (when (ecard-property-parameters prop)
+                        (setf (ecard-property-parameters new-prop) (copy-sequence (ecard-property-parameters prop))))
                       new-prop)
                   prop)))
 
       ;; Copy UID - preserve the property list format
-      (when (oref vcard uid)
-        (oset new-vcard uid (mapcar #'copy-property (oref vcard uid))))
+      (when (ecard-uid vcard)
+        (setf (ecard-uid new-vcard) (mapcar #'copy-property (ecard-uid vcard))))
 
       ;; Copy N field
-      (when (oref vcard n)
-        (oset new-vcard n (mapcar #'copy-property (oref vcard n))))
+      (when (ecard-n vcard)
+        (setf (ecard-n new-vcard) (mapcar #'copy-property (ecard-n vcard))))
 
       ;; Copy single-value properties - preserve property list format
-      (when (oref vcard org)
-        (oset new-vcard org (mapcar #'copy-property (oref vcard org))))
-      (when (oref vcard title)
-        (oset new-vcard title (mapcar #'copy-property (oref vcard title))))
-      (when (oref vcard note)
-        (oset new-vcard note (mapcar #'copy-property (oref vcard note))))
-      (when (oref vcard bday)
-        (oset new-vcard bday (mapcar #'copy-property (oref vcard bday))))
+      (when (ecard-org vcard)
+        (setf (ecard-org new-vcard) (mapcar #'copy-property (ecard-org vcard))))
+      (when (ecard-title vcard)
+        (setf (ecard-title new-vcard) (mapcar #'copy-property (ecard-title vcard))))
+      (when (ecard-note vcard)
+        (setf (ecard-note new-vcard) (mapcar #'copy-property (ecard-note vcard))))
+      (when (ecard-bday vcard)
+        (setf (ecard-bday new-vcard) (mapcar #'copy-property (ecard-bday vcard))))
 
       ;; Copy multi-valued properties
-      (when (oref vcard email)
-        (oset new-vcard email (mapcar #'copy-property (oref vcard email))))
-      (when (oref vcard tel)
-        (oset new-vcard tel (mapcar #'copy-property (oref vcard tel))))
-      (when (oref vcard adr)
-        (oset new-vcard adr (mapcar #'copy-property (oref vcard adr))))
-      (when (oref vcard url)
-        (oset new-vcard url (mapcar #'copy-property (oref vcard url))))
+      (when (ecard-email vcard)
+        (setf (ecard-email new-vcard) (mapcar #'copy-property (ecard-email vcard))))
+      (when (ecard-tel vcard)
+        (setf (ecard-tel new-vcard) (mapcar #'copy-property (ecard-tel vcard))))
+      (when (ecard-adr vcard)
+        (setf (ecard-adr new-vcard) (mapcar #'copy-property (ecard-adr vcard))))
+      (when (ecard-url vcard)
+        (setf (ecard-url new-vcard) (mapcar #'copy-property (ecard-url vcard))))
 
       ;; Copy extended properties - deep copy the alist
-      (when (oref vcard extended)
-        (oset new-vcard extended (mapcar (lambda (pair)
+      (when (ecard-extended vcard)
+        (setf (ecard-extended new-vcard) (mapcar (lambda (pair)
                                           (cons (car pair) (cdr pair)))
-                                        (oref vcard extended)))))
+                                        (ecard-extended vcard)))))
 
     new-vcard))
 
@@ -938,15 +942,15 @@ Multi-valued fields like email and tel are deduplicated and combined."
             (push "Missing required field: FN (Formatted Name)" errors))
 
           ;; Email validation
-          (dolist (email-prop (oref vcard email))
-            (let ((email (oref email-prop value)))
+          (dolist (email-prop (ecard-email vcard))
+            (let ((email (ecard-property-value email-prop)))
               (unless (ecard-tools--valid-email-p email)
                 (push (format "Invalid email format: %s" email) warnings))))
 
           ;; Phone validation (if strict)
           (when strict
-            (dolist (tel-prop (oref vcard tel))
-              (let ((tel (oref tel-prop value)))
+            (dolist (tel-prop (ecard-tel vcard))
+              (let ((tel (ecard-property-value tel-prop)))
                 (unless (ecard-tools--valid-phone-p tel)
                   (push (format "Invalid phone format: %s" tel) warnings)))))
 
@@ -1012,11 +1016,11 @@ Multi-valued fields like email and tel are deduplicated and combined."
           (push "Generated FN from N field" repairs)))
 
        ;; Try to guess from email
-       ((oref vcard email)
-        (let ((email-prop (car (oref vcard email))))
+       ((ecard-email vcard)
+        (let ((email-prop (car (ecard-email vcard))))
           (ecard-set-property vcard 'fn
                             (ecard-tools--guess-name-from-email
-                             (oref email-prop value)))
+                             (ecard-property-value email-prop)))
           (push "Generated FN from email" repairs)))
 
        ;; Try organization name

@@ -59,216 +59,241 @@
 
 ;;; EIEIO Classes
 
-(defclass ecard-property ()
-  ((group
-    :initarg :group
-    :initform nil
-    :type (or null string)
-    :documentation "Property group prefix (e.g., \"item1\" in \"item1.TEL\").")
-   (name
-    :initarg :name
-    :initform ""
-    :type string
-    :documentation "Property name in uppercase (e.g., \"TEL\", \"EMAIL\").")
-   (parameters
-    :initarg :parameters
-    :initform nil
-    :type list
-    :documentation "Property parameters as alist ((PARAM-NAME . param-value) ...).")
-   (value
-    :initarg :value
-    :initform ""
-    :type (or string list)
-    :documentation "Property value; list for structured properties (N, ADR)."))
-  "Represents a single vCard property with optional group, parameters, and value.")
+;; MIGRATION NOTE: Converted from EIEIO defclass to cl-defstruct for performance
+;; Expected improvements: 2-3x faster instantiation, 2-5x faster slot access
+(cl-defstruct (ecard-property
+               (:constructor ecard-property-create
+                             (&key (group nil) (name "") (parameters nil) (value "")))
+               (:copier nil)
+               (:predicate ecard-property-p))
+  "Represents a single vCard property with optional group, parameters, and value."
+  (group nil :type (or null string)
+   :documentation "Property group prefix (e.g., \"item1\" in \"item1.TEL\").")
+  (name "" :type string
+   :documentation "Property name in uppercase (e.g., \"TEL\", \"EMAIL\").")
+  (parameters nil :type list
+   :documentation "Property parameters as alist ((PARAM-NAME . param-value) ...).")
+  (value "" :type (or string list)
+   :documentation "Property value; list for structured properties (N, ADR)."))
 
-(defclass ecard ()
-  ((version
-    :initarg :version
-    :initform nil
-    :type list
-    :documentation "VERSION property (always \"4.0\").")
-   (source
-    :initarg :source
-    :initform nil
-    :type list
-    :documentation "SOURCE property.")
-   (kind
-    :initarg :kind
-    :initform nil
-    :type list
-    :documentation "KIND property (individual, group, org, location).")
-   (xml
-    :initarg :xml
-    :initform nil
-    :type list
-    :documentation "XML property.")
-   (fn
-    :initarg :fn
-    :initform nil
-    :type list
-    :documentation "FN (formatted name) property - REQUIRED, can be multiple.")
-   (n
-    :initarg :n
-    :initform nil
-    :type list
-    :documentation "N (structured name) property.")
-   (nickname
-    :initarg :nickname
-    :initform nil
-    :type list
-    :documentation "NICKNAME property.")
-   (photo
-    :initarg :photo
-    :initform nil
-    :type list
-    :documentation "PHOTO property.")
-   (bday
-    :initarg :bday
-    :initform nil
-    :type list
-    :documentation "BDAY (birthday) property.")
-   (anniversary
-    :initarg :anniversary
-    :initform nil
-    :type list
-    :documentation "ANNIVERSARY property.")
-   (gender
-    :initarg :gender
-    :initform nil
-    :type list
-    :documentation "GENDER property.")
-   (adr
-    :initarg :adr
-    :initform nil
-    :type list
-    :documentation "ADR (structured address) property.")
-   (tel
-    :initarg :tel
-    :initform nil
-    :type list
-    :documentation "TEL (telephone) property.")
-   (email
-    :initarg :email
-    :initform nil
-    :type list
-    :documentation "EMAIL property.")
-   (impp
-    :initarg :impp
-    :initform nil
-    :type list
-    :documentation "IMPP (instant messaging and presence protocol) property.")
-   (lang
-    :initarg :lang
-    :initform nil
-    :type list
-    :documentation "LANG (language) property.")
-   (geo
-    :initarg :geo
-    :initform nil
-    :type list
-    :documentation "GEO (geographical position) property.")
-   (tz
-    :initarg :tz
-    :initform nil
-    :type list
-    :documentation "TZ (time zone) property.")
-   (title
-    :initarg :title
-    :initform nil
-    :type list
-    :documentation "TITLE property.")
-   (role
-    :initarg :role
-    :initform nil
-    :type list
-    :documentation "ROLE property.")
-   (logo
-    :initarg :logo
-    :initform nil
-    :type list
-    :documentation "LOGO property.")
-   (org
-    :initarg :org
-    :initform nil
-    :type list
-    :documentation "ORG (organization) property.")
-   (member
-    :initarg :member
-    :initform nil
-    :type list
-    :documentation "MEMBER property.")
-   (related
-    :initarg :related
-    :initform nil
-    :type list
-    :documentation "RELATED property.")
-   (categories
-    :initarg :categories
-    :initform nil
-    :type list
-    :documentation "CATEGORIES property.")
-   (note
-    :initarg :note
-    :initform nil
-    :type list
-    :documentation "NOTE property.")
-   (prodid
-    :initarg :prodid
-    :initform nil
-    :type list
-    :documentation "PRODID (product identifier) property.")
-   (rev
-    :initarg :rev
-    :initform nil
-    :type list
-    :documentation "REV (revision) property.")
-   (sound
-    :initarg :sound
-    :initform nil
-    :type list
-    :documentation "SOUND property.")
-   (uid
-    :initarg :uid
-    :initform nil
-    :type list
-    :documentation "UID (unique identifier) property.")
-   (clientpidmap
-    :initarg :clientpidmap
-    :initform nil
-    :type list
-    :documentation "CLIENTPIDMAP property.")
-   (url
-    :initarg :url
-    :initform nil
-    :type list
-    :documentation "URL property.")
-   (key
-    :initarg :key
-    :initform nil
-    :type list
-    :documentation "KEY (public key) property.")
-   (fburl
-    :initarg :fburl
-    :initform nil
-    :type list
-    :documentation "FBURL (free/busy URL) property.")
-   (caladruri
-    :initarg :caladruri
-    :initform nil
-    :type list
-    :documentation "CALADRURI (calendar address URI) property.")
-   (caluri
-    :initarg :caluri
-    :initform nil
-    :type list
-    :documentation "CALURI (calendar URI) property.")
-   (extended
-    :initarg :extended
-    :initform nil
-    :type list
-    :documentation "Alist for X-* properties: ((x-name . (list of ecard-property)) ...)."))
-  "Represents a complete vCard 4.0 object with all RFC 6350 section 6 properties.")
+;; Backward compatibility wrapper for old EIEIO-style constructor
+(defun ecard-property (&rest args)
+  "Create ecard-property struct.
+Accepts keyword arguments :group, :name, :parameters, :value for compatibility."
+  (apply #'ecard-property-create args))
+
+;; MIGRATION NOTE: Converted from EIEIO defclass to cl-defstruct for performance
+;; Expected improvements: 2-3x faster instantiation, 2-5x faster slot access, 20-40% memory reduction
+;; All 36 vCard 4.0 properties stored as lists of ecard-property structs
+(cl-defstruct (ecard
+               (:constructor ecard--create-internal)
+               (:copier nil)
+               (:predicate ecard-p))
+  "Represents a complete vCard 4.0 object with all RFC 6350 section 6 properties.
+Each slot stores a list of ecard-property structs for that property type.
+The :extended slot uses an alist structure: ((x-name . (list of ecard-property)) ...)."
+  (version nil :type list
+           :documentation "VERSION property (always \"4.0\").")
+  (source nil :type list
+          :documentation "SOURCE property.")
+  (kind nil :type list
+        :documentation "KIND property (individual, group, org, location).")
+  (xml nil :type list
+       :documentation "XML property.")
+  (fn nil :type list
+      :documentation "FN (formatted name) property - REQUIRED, can be multiple.")
+  (n nil :type list
+     :documentation "N (structured name) property.")
+  (nickname nil :type list
+            :documentation "NICKNAME property.")
+  (photo nil :type list
+         :documentation "PHOTO property.")
+  (bday nil :type list
+        :documentation "BDAY (birthday) property.")
+  (anniversary nil :type list
+               :documentation "ANNIVERSARY property.")
+  (gender nil :type list
+          :documentation "GENDER property.")
+  (adr nil :type list
+       :documentation "ADR (structured address) property.")
+  (tel nil :type list
+       :documentation "TEL (telephone) property.")
+  (email nil :type list
+         :documentation "EMAIL property.")
+  (impp nil :type list
+        :documentation "IMPP (instant messaging and presence protocol) property.")
+  (lang nil :type list
+        :documentation "LANG (language) property.")
+  (geo nil :type list
+       :documentation "GEO (geographical position) property.")
+  (tz nil :type list
+      :documentation "TZ (time zone) property.")
+  (title nil :type list
+         :documentation "TITLE property.")
+  (role nil :type list
+        :documentation "ROLE property.")
+  (logo nil :type list
+        :documentation "LOGO property.")
+  (org nil :type list
+       :documentation "ORG (organization) property.")
+  (member nil :type list
+          :documentation "MEMBER property.")
+  (related nil :type list
+           :documentation "RELATED property.")
+  (categories nil :type list
+              :documentation "CATEGORIES property.")
+  (note nil :type list
+        :documentation "NOTE property.")
+  (prodid nil :type list
+          :documentation "PRODID (product identifier) property.")
+  (rev nil :type list
+       :documentation "REV (revision) property.")
+  (sound nil :type list
+         :documentation "SOUND property.")
+  (uid nil :type list
+       :documentation "UID (unique identifier) property.")
+  (clientpidmap nil :type list
+                :documentation "CLIENTPIDMAP property.")
+  (url nil :type list
+       :documentation "URL property.")
+  (key nil :type list
+       :documentation "KEY (public key) property.")
+  (fburl nil :type list
+         :documentation "FBURL (free/busy URL) property.")
+  (caladruri nil :type list
+             :documentation "CALADRURI (calendar address URI) property.")
+  (caluri nil :type list
+          :documentation "CALURI (calendar URI) property.")
+  (extended nil :type list
+            :documentation "Alist for X-* properties: ((x-name . (list of ecard-property)) ...)."))
+
+;; Smart constructor for ecard struct
+(defun ecard-create-struct (&rest args)
+  "Create ecard struct with keyword arguments.
+ARGS is a plist of slot names and values.
+Handles list initialization for multi-value properties.
+All slots default to nil if not provided.
+
+Example:
+  (ecard-create-struct :fn (list prop1) :email (list prop2 prop3))"
+  (apply #'ecard--create-internal args))
+
+;; Backward compatibility wrapper for old EIEIO-style constructor
+(defun ecard (&rest args)
+  "Create ecard struct.
+Accepts keyword arguments for all slots for backward compatibility.
+If called with no args, creates empty ecard with all slots nil."
+  (if args
+      (apply #'ecard-create-struct args)
+    (ecard--create-internal)))
+
+;; Dynamic slot access helpers for migration from EIEIO
+;; These replace slot-value and slot-exists-p for dynamic slot names
+(defun ecard--slot-value (vc slot-name)
+  "Get value of SLOT-NAME from ecard struct VC.
+SLOT-NAME can be a symbol like \\='fn or \\='email, or a keyword like \\=:fn.
+Returns nil if slot doesn't exist."
+  ;; Normalize keyword to symbol (e.g., :note -> note)
+  (when (keywordp slot-name)
+    (setq slot-name (intern (substring (symbol-name slot-name) 1))))
+  (pcase slot-name
+    ('version (ecard-version vc))
+    ('source (ecard-source vc))
+    ('kind (ecard-kind vc))
+    ('xml (ecard-xml vc))
+    ('fn (ecard-fn vc))
+    ('n (ecard-n vc))
+    ('nickname (ecard-nickname vc))
+    ('photo (ecard-photo vc))
+    ('bday (ecard-bday vc))
+    ('anniversary (ecard-anniversary vc))
+    ('gender (ecard-gender vc))
+    ('adr (ecard-adr vc))
+    ('tel (ecard-tel vc))
+    ('email (ecard-email vc))
+    ('impp (ecard-impp vc))
+    ('lang (ecard-lang vc))
+    ('geo (ecard-geo vc))
+    ('tz (ecard-tz vc))
+    ('title (ecard-title vc))
+    ('role (ecard-role vc))
+    ('logo (ecard-logo vc))
+    ('org (ecard-org vc))
+    ('member (ecard-member vc))
+    ('related (ecard-related vc))
+    ('categories (ecard-categories vc))
+    ('note (ecard-note vc))
+    ('prodid (ecard-prodid vc))
+    ('rev (ecard-rev vc))
+    ('sound (ecard-sound vc))
+    ('uid (ecard-uid vc))
+    ('clientpidmap (ecard-clientpidmap vc))
+    ('url (ecard-url vc))
+    ('key (ecard-key vc))
+    ('fburl (ecard-fburl vc))
+    ('caladruri (ecard-caladruri vc))
+    ('caluri (ecard-caluri vc))
+    ('extended (ecard-extended vc))
+    (_ nil)))
+
+(defun ecard--set-slot-value (vc slot-name value)
+  "Set SLOT-NAME in ecard struct VC to VALUE.
+SLOT-NAME can be a symbol like \\='fn or \\='email, or a keyword like \\=:fn.
+Signals \\='invalid-slot-name error if SLOT-NAME is not a valid ecard slot."
+  ;; Normalize keyword to symbol (e.g., :note -> note)
+  (when (keywordp slot-name)
+    (setq slot-name (intern (substring (symbol-name slot-name) 1))))
+  (pcase slot-name
+    ('version (setf (ecard-version vc) value))
+    ('source (setf (ecard-source vc) value))
+    ('kind (setf (ecard-kind vc) value))
+    ('xml (setf (ecard-xml vc) value))
+    ('fn (setf (ecard-fn vc) value))
+    ('n (setf (ecard-n vc) value))
+    ('nickname (setf (ecard-nickname vc) value))
+    ('photo (setf (ecard-photo vc) value))
+    ('bday (setf (ecard-bday vc) value))
+    ('anniversary (setf (ecard-anniversary vc) value))
+    ('gender (setf (ecard-gender vc) value))
+    ('adr (setf (ecard-adr vc) value))
+    ('tel (setf (ecard-tel vc) value))
+    ('email (setf (ecard-email vc) value))
+    ('impp (setf (ecard-impp vc) value))
+    ('lang (setf (ecard-lang vc) value))
+    ('geo (setf (ecard-geo vc) value))
+    ('tz (setf (ecard-tz vc) value))
+    ('title (setf (ecard-title vc) value))
+    ('role (setf (ecard-role vc) value))
+    ('logo (setf (ecard-logo vc) value))
+    ('org (setf (ecard-org vc) value))
+    ('member (setf (ecard-member vc) value))
+    ('related (setf (ecard-related vc) value))
+    ('categories (setf (ecard-categories vc) value))
+    ('note (setf (ecard-note vc) value))
+    ('prodid (setf (ecard-prodid vc) value))
+    ('rev (setf (ecard-rev vc) value))
+    ('sound (setf (ecard-sound vc) value))
+    ('uid (setf (ecard-uid vc) value))
+    ('clientpidmap (setf (ecard-clientpidmap vc) value))
+    ('url (setf (ecard-url vc) value))
+    ('key (setf (ecard-key vc) value))
+    ('fburl (setf (ecard-fburl vc) value))
+    ('caladruri (setf (ecard-caladruri vc) value))
+    ('caluri (setf (ecard-caluri vc) value))
+    ('extended (setf (ecard-extended vc) value))
+    (_ (signal 'invalid-slot-name (list slot-name 'ecard)))))
+
+(defun ecard--slot-exists-p (vc slot-name)
+  "Check if SLOT-NAME exists in ecard struct VC.
+SLOT-NAME can be a symbol like \\='fn or \\='email, or a keyword like \\=:fn.
+Always returns t for valid slot names, nil otherwise."
+  ;; Normalize keyword to symbol (e.g., :note -> note)
+  (when (keywordp slot-name)
+    (setq slot-name (intern (substring (symbol-name slot-name) 1))))
+  (memq slot-name '(version source kind xml fn n nickname photo bday anniversary
+                    gender adr tel email impp lang geo tz title role logo org
+                    member related categories note prodid rev sound uid
+                    clientpidmap url key fburl caladruri caluri extended)))
 
 ;;; Internal utility functions
 
@@ -366,12 +391,11 @@ Used for structured properties like N, ADR, ORG, GENDER."
         (cond
          ;; Previous char was backslash, so this char is escaped
          (escaped
-          (setq current (concat current (char-to-string char)))
+          (setq current (concat current "\\" (char-to-string char)))
           (setq escaped nil)
           (setq i (1+ i)))
          ;; This is a backslash - next char will be escaped
          ((eq char ?\\)
-          (setq current (concat current "\\"))
           (setq escaped t)
           (setq i (1+ i)))
          ;; Unescaped semicolon - split here
@@ -621,23 +645,23 @@ Enforces cardinality constraints for *1 properties."
     (cond
      ;; Extended properties (X-*)
      ((string-prefix-p "X-" name)
-      (let* ((extended (oref vc extended))
+      (let* ((extended (ecard-extended vc))
              (existing (assoc name extended)))
         (if existing
             (setcdr existing (append (cdr existing) (list prop)))
-          (oset vc extended (append extended (list (cons name (list prop))))))))
+          (setf (ecard-extended vc) (append extended (list (cons name (list prop))))))))
 
      ;; Standard properties
      (t
       (let ((slot (ecard--property-slot-name name)))
-        (when (slot-exists-p vc slot)
-          (let ((current (slot-value vc slot)))
+        (when (ecard--slot-exists-p vc slot)
+          (let ((current (ecard--slot-value vc slot)))
             ;; Enforce cardinality *1 constraint
             (when (and (ecard--is-cardinality-one-property-p name)
                        current)
               (signal 'ecard-validation-error
                       (list (format "Property %s can appear at most once (cardinality *1)" name))))
-            (setf (slot-value vc slot) (append current (list prop))))))))))
+            (ecard--set-slot-value vc slot (append current (list prop))))))))))
 
 (defun ecard--fold-line (line)
   "Fold LINE at 75 octets using space continuation.
@@ -672,10 +696,10 @@ Returns list of folded lines."
 (defun ecard--format-property (prop)
   "Format ecard property PROP into vCard line (without folding).
 Returns formatted string."
-  (let* ((group (oref prop group))
-         (name (oref prop name))
-         (parameters (oref prop parameters))
-         (value (oref prop value))
+  (let* ((group (ecard-property-group prop))
+         (name (ecard-property-name prop))
+         (parameters (ecard-property-parameters prop))
+         (value (ecard-property-value prop))
          (param-str (ecard--format-parameters parameters))
          (value-str (if (listp value)
                         ;; Text-list properties (CATEGORIES, NICKNAME) use comma separator
@@ -710,9 +734,9 @@ Signals `ecard-validation-error' if any PREF value is out of range."
                   impp lang geo tz title role logo org member related
                   categories note prodid rev sound uid clientpidmap url
                   key fburl caladruri caluri source kind xml))
-    (let ((props (slot-value vc slot)))
+    (let ((props (ecard--slot-value vc slot)))
       (dolist (prop props)
-        (let ((params (oref prop parameters)))
+        (let ((params (ecard-property-parameters prop)))
           (when params
             (let ((pref-param (assoc "PREF" params)))
               (when pref-param
@@ -732,43 +756,43 @@ Signals `ecard-validation-error' if any PREF value is out of range."
   "Validate required properties for ecard object VC.
 Signals `ecard-validation-error' if validation fails."
   ;; Validate required properties
-  (unless (oref vc version)
+  (unless (ecard-version vc)
     (signal 'ecard-validation-error '("Missing VERSION property")))
 
-  (let ((fn-props (oref vc fn)))
+  (let ((fn-props (ecard-fn vc)))
     (unless fn-props
       (signal 'ecard-validation-error '("Missing FN (formatted name) property")))
     ;; Validate FN is not empty
     (let* ((fn-prop (car fn-props))
-           (fn-value (when fn-prop (oref fn-prop value))))
+           (fn-value (when fn-prop (ecard-property-value fn-prop))))
       (when (or (null fn-value)
                 (and (stringp fn-value) (string-empty-p fn-value)))
         (signal 'ecard-validation-error '("FN (formatted name) property cannot be empty")))))
 
   ;; Validate VERSION is 4.0
-  (let ((version-prop (car (oref vc version))))
+  (let ((version-prop (car (ecard-version vc))))
     (unless (and version-prop
-                 (string= (oref version-prop value) "4.0"))
+                 (string= (ecard-property-value version-prop) "4.0"))
       (signal 'ecard-validation-error
               (list "Unsupported VERSION"
-                    (if version-prop (oref version-prop value) "nil")))))
+                    (if version-prop (ecard-property-value version-prop) "nil")))))
 
   ;; Validate KIND value if present
-  (let ((kind-props (oref vc kind)))
+  (let ((kind-props (ecard-kind vc)))
     (when kind-props
       (let* ((kind-prop (car kind-props))
-             (kind-value (downcase (oref kind-prop value))))
+             (kind-value (downcase (ecard-property-value kind-prop))))
         (unless (member kind-value '("individual" "group" "org" "location"))
           (signal 'ecard-validation-error
                   (list (format "Invalid KIND value: %s (must be individual, group, org, or location)"
-                                (oref kind-prop value))))))))
+                                (ecard-property-value kind-prop))))))))
 
   ;; Validate MEMBER/KIND relationship
-  (let ((member-props (oref vc member))
-        (kind-props (oref vc kind)))
+  (let ((member-props (ecard-member vc))
+        (kind-props (ecard-kind vc)))
     (when (and member-props
                (or (null kind-props)
-                   (not (string= (downcase (oref (car kind-props) value)) "group"))))
+                   (not (string= (downcase (ecard-property-value (car kind-props))) "group"))))
       (signal 'ecard-validation-error
               '("MEMBER property requires KIND to be 'group'"))))
 
@@ -926,12 +950,12 @@ Returns a properly formatted and folded vCard string."
                     adr tel email impp lang geo tz title role logo org member related
                     categories note prodid rev sound uid clientpidmap url
                     key fburl caladruri caluri))
-      (let ((props (slot-value vc slot)))
+      (let ((props (ecard--slot-value vc slot)))
         (when props
           (setq lines (append lines (ecard--serialize-properties props))))))
 
     ;; Serialize extended properties
-    (let ((extended (oref vc extended)))
+    (let ((extended (ecard-extended vc)))
       (dolist (entry extended)
         (let ((props (cdr entry)))
           (setq lines (append lines (ecard--serialize-properties props))))))
@@ -1025,12 +1049,12 @@ Example:
         (source (plist-get args :source)))
 
     ;; Set VERSION:4.0
-    (oset vc version (list (ecard-property :name "VERSION" :value "4.0")))
+    (setf (ecard-version vc) (list (ecard-property :name "VERSION" :value "4.0")))
 
     ;; Helper macro to add simple properties
     (cl-macrolet ((add-prop (slot-name value)
                     `(when ,value
-                       (oset vc ,slot-name
+                       (setf (,(intern (concat "ecard-" (symbol-name slot-name))) vc)
                              (if (listp ,value)
                                  (mapcar (lambda (v)
                                            (ecard-property
@@ -1068,21 +1092,21 @@ Example:
 
     ;; Handle N (structured name) - can be a list
     (when n
-      (oset vc n (list (ecard-property :name "N" :value n))))
+      (setf (ecard-n vc) (list (ecard-property :name "N" :value n))))
 
     ;; Handle ORG (structured organization) - convert string to list
     (when org
-      (oset vc org (list (ecard-property :name "ORG"
-                                         :value (if (listp org) org (list org))))))
+      (setf (ecard-org vc) (list (ecard-property :name "ORG"
+                                                  :value (if (listp org) org (list org))))))
 
     ;; Handle GENDER (structured) - convert string to list
     (when gender
-      (oset vc gender (list (ecard-property :name "GENDER"
-                                            :value (if (listp gender) gender (list gender))))))
+      (setf (ecard-gender vc) (list (ecard-property :name "GENDER"
+                                                     :value (if (listp gender) gender (list gender))))))
 
     ;; Handle ADR (structured address) - can be list of lists
     (when adr
-      (oset vc adr
+      (setf (ecard-adr vc)
             (if (and (listp adr) (listp (car adr)) (stringp (car (car adr))))
                 ;; List of addresses
                 (mapcar (lambda (a) (ecard-property :name "ADR" :value a)) adr)
@@ -1090,7 +1114,7 @@ Example:
               (list (ecard-property :name "ADR" :value adr)))))
 
     ;; Validate FN is present
-    (unless (oref vc fn)
+    (unless (ecard-fn vc)
       (signal 'ecard-validation-error '("FN (formatted name) is required")))
 
     vc))
@@ -1101,16 +1125,16 @@ Example:
   "Get all values for PROPERTY-NAME from ecard object VC.
 Returns list of values (strings or lists for structured properties).
 PROPERTY-NAME should be a lowercase symbol (e.g., \\='fn, \\='email)."
-  (let ((props (slot-value vc property-name)))
-    (mapcar (lambda (prop) (oref prop value)) props)))
+  (let ((props (ecard--slot-value vc property-name)))
+    (mapcar (lambda (prop) (ecard-property-value prop)) props)))
 
 (defun ecard-get-property-value (vc property-name)
   "Get first value for PROPERTY-NAME from ecard object VC.
 Returns string or list for structured properties, or nil if not found.
 PROPERTY-NAME should be a lowercase symbol (e.g., \\='fn, \\='email)."
-  (let ((props (slot-value vc property-name)))
+  (let ((props (ecard--slot-value vc property-name)))
     (when props
-      (oref (car props) value))))
+      (ecard-property-value (car props)))))
 
 (defun ecard-set-property (vc property-name value &optional parameters group)
   "Set PROPERTY-NAME in ecard object VC to VALUE.
@@ -1124,7 +1148,7 @@ Optional GROUP is the property group string."
                :value value
                :parameters parameters
                :group group)))
-    (setf (slot-value vc property-name) (list prop))))
+    (ecard--set-slot-value vc property-name (list prop))))
 
 (defun ecard-add-property (vc property-name value &optional parameters group)
   "Add PROPERTY-NAME to ecard object VC with VALUE.
@@ -1138,8 +1162,8 @@ Optional GROUP is the property group string."
                :value value
                :parameters parameters
                :group group))
-        (existing (slot-value vc property-name)))
-    (setf (slot-value vc property-name) (append existing (list prop)))))
+        (existing (ecard--slot-value vc property-name)))
+    (ecard--set-slot-value vc property-name (append existing (list prop)))))
 
 (provide 'ecard)
 ;;; ecard.el ends here

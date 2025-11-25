@@ -265,7 +265,8 @@ If nil, inherits from server's version. Allows per-addressbook version control."
    (ecard
     :initarg :ecard
     :initform nil
-    :type (or null ecard)
+    ;; Note: :type removed because ecard is now a cl-defstruct, not an EIEIO class
+    ;; EIEIO type checking doesn't work with structs
     :documentation "Parsed ecard object (nil if not yet fetched).")
    (ecard-data
     :initarg :ecard-data

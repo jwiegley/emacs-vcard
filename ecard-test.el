@@ -171,7 +171,7 @@ END:VCARD"
       (should (member "jane@home.example.com" emails)))
 
     ;; Check email parameters
-    (let ((email-props (oref vc email)))
+    (let ((email-props (ecard-email vc)))
       (should (= (length email-props) 2))
       (should (equal (oref (car email-props) parameters)
                      '(("TYPE" . "work")))))
@@ -215,18 +215,18 @@ END:VCARD"
     (should (ecard-p vc))
 
     ;; Check extended properties
-    (let ((extended (oref vc extended)))
+    (let ((extended (ecard-extended vc)))
       (should (assoc "X-CUSTOM" extended))
       (should (assoc "X-MANAGER" extended))
       (should (assoc "X-LABEL" extended)))
 
     ;; Check X-CUSTOM value
-    (let* ((x-custom-props (cdr (assoc "X-CUSTOM" (oref vc extended))))
+    (let* ((x-custom-props (cdr (assoc "X-CUSTOM" (ecard-extended vc))))
            (x-custom-value (oref (car x-custom-props) value)))
       (should (string= x-custom-value "Custom value")))
 
     ;; Check grouped properties
-    (let ((tel-props (oref vc tel)))
+    (let ((tel-props (ecard-tel vc)))
       (should (= (length tel-props) 2))
       (should (string= (oref (car tel-props) group) "item1"))
       (should (string= (oref (cadr tel-props) group) "item2")))))
@@ -1333,7 +1333,7 @@ END:VCARD"
 (ert-deftest ecard-rfc-param-pref-valid-test ()
   "Test PREF parameter with valid values (1-100)."
   (let* ((vc (ecard-parse ecard-test-rfc-pref-valid))
-         (email-props (oref vc email)))
+         (email-props (ecard-email vc)))
     (should (= (length email-props) 3))
     ;; Verify PREF parameters are parsed
     (let ((pref1 (cdr (assoc "PREF" (oref (nth 0 email-props) parameters))))
@@ -1359,16 +1359,16 @@ END:VCARD"
 (ert-deftest ecard-rfc-param-type-tel-test ()
   "Test TYPE parameter for TEL property."
   (let* ((vc (ecard-parse ecard-test-rfc-type-tel))
-         (tel-props (oref vc tel)))
+         (tel-props (ecard-tel vc)))
     (should (>= (length tel-props) 6))
     ;; Verify TYPE parameters exist
     (dolist (prop tel-props)
-      (should (assoc "TYPE" (oref prop parameters))))))
+      (should (assoc "TYPE" (ecard-property-parameters prop))))))
 
 (ert-deftest ecard-rfc-param-type-email-test ()
   "Test TYPE parameter for EMAIL property."
   (let* ((vc (ecard-parse ecard-test-rfc-type-email))
-         (email-props (oref vc email)))
+         (email-props (ecard-email vc)))
     (should (= (length email-props) 2))
     ;; Verify TYPE parameters
     (should (assoc "TYPE" (oref (car email-props) parameters)))
@@ -1377,22 +1377,22 @@ END:VCARD"
 (ert-deftest ecard-rfc-param-altid-test ()
   "Test ALTID parameter for alternative representations."
   (let* ((vc (ecard-parse ecard-test-rfc-altid))
-         (fn-props (oref vc fn)))
+         (fn-props (ecard-fn vc)))
     (should (= (length fn-props) 3))
     ;; Verify ALTID parameters exist on properties that have them
     (let ((props-with-altid (cl-remove-if-not
                               (lambda (prop)
-                                (assoc "ALTID" (oref prop parameters)))
+                                (assoc "ALTID" (ecard-property-parameters prop)))
                               fn-props)))
       (should (= (length props-with-altid) 2))
       ;; All ALTID values should be "1"
       (dolist (prop props-with-altid)
-        (should (string= (cdr (assoc "ALTID" (oref prop parameters))) "1"))))))
+        (should (string= (cdr (assoc "ALTID" (ecard-property-parameters prop))) "1"))))))
 
 (ert-deftest ecard-rfc-param-pid-test ()
   "Test PID parameter format."
   (let* ((vc (ecard-parse ecard-test-rfc-pid))
-         (email-props (oref vc email)))
+         (email-props (ecard-email vc)))
     (should (= (length email-props) 2))
     ;; Verify PID parameters exist
     (should (assoc "PID" (oref (car email-props) parameters)))
@@ -1401,12 +1401,12 @@ END:VCARD"
 (ert-deftest ecard-rfc-param-language-test ()
   "Test LANGUAGE parameter."
   (let* ((vc (ecard-parse ecard-test-rfc-language))
-         (fn-props (oref vc fn)))
+         (fn-props (ecard-fn vc)))
     ;; Should have FN properties with LANGUAGE parameters
     (let ((has-en nil)
           (has-fr nil))
       (dolist (prop fn-props)
-        (let ((lang (cdr (assoc "LANGUAGE" (oref prop parameters)))))
+        (let ((lang (cdr (assoc "LANGUAGE" (ecard-property-parameters prop)))))
           (when (string= lang "en") (setq has-en t))
           (when (string= lang "fr") (setq has-fr t))))
       (should has-en)
@@ -1415,8 +1415,8 @@ END:VCARD"
 (ert-deftest ecard-rfc-param-mediatype-test ()
   "Test MEDIATYPE parameter."
   (let* ((vc (ecard-parse ecard-test-rfc-mediatype))
-         (photo-props (oref vc photo))
-         (logo-props (oref vc logo)))
+         (photo-props (ecard-photo vc))
+         (logo-props (ecard-logo vc)))
     (should photo-props)
     (should logo-props)
     ;; Verify MEDIATYPE parameters exist
@@ -1428,7 +1428,7 @@ END:VCARD"
 (ert-deftest ecard-rfc-param-calscale-test ()
   "Test CALSCALE parameter."
   (let* ((vc (ecard-parse ecard-test-rfc-calscale))
-         (bday-props (oref vc bday)))
+         (bday-props (ecard-bday vc)))
     (should bday-props)
     ;; Verify CALSCALE parameter exists
     (should (assoc "CALSCALE" (oref (car bday-props) parameters)))))
@@ -1436,8 +1436,8 @@ END:VCARD"
 (ert-deftest ecard-rfc-param-sortas-test ()
   "Test SORT-AS parameter."
   (let* ((vc (ecard-parse ecard-test-rfc-sortas))
-         (n-props (oref vc n))
-         (org-props (oref vc org)))
+         (n-props (ecard-n vc))
+         (org-props (ecard-org vc)))
     (should n-props)
     (should org-props)
     ;; Verify SORT-AS parameters exist
@@ -1449,7 +1449,7 @@ END:VCARD"
   ;; NOTE: Test simplified due to regex limitation with dots in parameter values
   ;; TODO: Fix regex to properly handle parameter values containing dots
   (let* ((vc (ecard-parse ecard-test-rfc-adr-geo-tz))
-         (adr-props (oref vc adr)))
+         (adr-props (ecard-adr vc)))
     (should adr-props)
     ;; Verify TYPE parameter exists as a working alternative
     (let ((params (oref (car adr-props) parameters)))
@@ -1462,7 +1462,7 @@ END:VCARD"
 (ert-deftest ecard-rfc-cardinality-fn-required-test ()
   "Test FN cardinality (1* - at least one required)."
   (let* ((vc (ecard-parse ecard-test-rfc-cardinality-fn-multiple))
-         (fn-props (oref vc fn)))
+         (fn-props (ecard-fn vc)))
     ;; Multiple FN properties are allowed (1* cardinality)
     (should (>= (length fn-props) 1))))
 
@@ -1560,7 +1560,7 @@ END:VCARD"
 (ert-deftest ecard-rfc-escape-backslash-test ()
   "Test \\\\ escape sequence."
   (let* ((vc (ecard-parse ecard-test-rfc-escape-all))
-         (x-backslash (car (cdr (assoc "X-BACKSLASH" (oref vc extended)))))
+         (x-backslash (car (cdr (assoc "X-BACKSLASH" (ecard-extended vc)))))
          (value (when x-backslash (oref x-backslash value))))
     (should value)
     (should (string-match-p "\\\\" value))))
@@ -1568,7 +1568,7 @@ END:VCARD"
 (ert-deftest ecard-rfc-escape-comma-test ()
   "Test \\, escape sequence."
   (let* ((vc (ecard-parse ecard-test-rfc-escape-all))
-         (x-comma (car (cdr (assoc "X-COMMA" (oref vc extended)))))
+         (x-comma (car (cdr (assoc "X-COMMA" (ecard-extended vc)))))
          (value (when x-comma (oref x-comma value))))
     (should value)
     (should (string-match-p "," value))))
@@ -1576,7 +1576,7 @@ END:VCARD"
 (ert-deftest ecard-rfc-escape-semicolon-test ()
   "Test \\; escape sequence."
   (let* ((vc (ecard-parse ecard-test-rfc-escape-all))
-         (x-semicolon (car (cdr (assoc "X-SEMICOLON" (oref vc extended)))))
+         (x-semicolon (car (cdr (assoc "X-SEMICOLON" (ecard-extended vc)))))
          (value (when x-semicolon (oref x-semicolon value))))
     (should value)
     (should (string-match-p ";" value))))
@@ -1584,7 +1584,7 @@ END:VCARD"
 (ert-deftest ecard-rfc-escape-multiple-test ()
   "Test multiple escape sequences in one value."
   (let* ((vc (ecard-parse ecard-test-rfc-escape-all))
-         (x-all (car (cdr (assoc "X-ALL" (oref vc extended)))))
+         (x-all (car (cdr (assoc "X-ALL" (ecard-extended vc)))))
          (value (when x-all (oref x-all value))))
     (should value)
     (should (string-match-p "\n" value))
@@ -1640,7 +1640,7 @@ END:VCARD"
   "Test empty property values."
   (let* ((vc (ecard-parse ecard-test-rfc-empty-values))
          (note (ecard-get-property-value vc 'note))
-         (x-empty (car (cdr (assoc "X-EMPTY" (oref vc extended)))))
+         (x-empty (car (cdr (assoc "X-EMPTY" (ecard-extended vc)))))
          (x-empty-val (when x-empty (oref x-empty value))))
     (should (string= note ""))
     (should (string= x-empty-val ""))))
@@ -1698,26 +1698,26 @@ END:VCARD"
 (ert-deftest ecard-rfc-international-altid-test ()
   "Test international contacts with ALTID alternative representations."
   (let* ((vc (ecard-parse ecard-test-rfc-international-altid))
-         (fn-props (oref vc fn)))
+         (fn-props (ecard-fn vc)))
     (should (>= (length fn-props) 4))
     ;; Verify all have same ALTID
     (let ((altids (mapcar (lambda (prop)
-                            (cdr (assoc "ALTID" (oref prop parameters))))
+                            (cdr (assoc "ALTID" (ecard-property-parameters prop))))
                           fn-props)))
       (should (cl-every (lambda (id) (string= id "1")) altids)))))
 
 (ert-deftest ecard-rfc-pref-ordering-test ()
   "Test contacts with preference ordering (PREF parameter)."
   (let* ((vc (ecard-parse ecard-test-rfc-pref-ordering))
-         (tel-props (oref vc tel))
-         (email-props (oref vc email)))
+         (tel-props (ecard-tel vc))
+         (email-props (ecard-email vc)))
     (should (>= (length tel-props) 3))
     (should (>= (length email-props) 3))
     ;; Verify PREF parameters exist
     (dolist (prop tel-props)
-      (should (assoc "PREF" (oref prop parameters))))
+      (should (assoc "PREF" (ecard-property-parameters prop))))
     (dolist (prop email-props)
-      (should (assoc "PREF" (oref prop parameters))))))
+      (should (assoc "PREF" (ecard-property-parameters prop))))))
 
 (ert-deftest ecard-rfc-round-trip-all-properties-test ()
   "Test round-trip with comprehensive vCard containing all properties."

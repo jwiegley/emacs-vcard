@@ -361,25 +361,25 @@ Performance: Uses O(1) cons instead of O(n) append.
 Note: Properties are stored in reverse order of appearance, but RFC 6350
 does not mandate property order, and serialization maintains data fidelity."
   (let ((slot (intern (downcase name))))
-    (when (and (slot-exists-p vc slot)
+    (when (and (ecard--slot-exists-p vc slot)
                (not (eq slot 'version)))  ; Don't override VERSION
       (let* ((prop (ecard-property
                    :name name
                    :value value
                    :parameters params
                    :group group))
-             (existing (slot-value vc slot)))
+             (existing (ecard--slot-value vc slot)))
 
         ;; Check cardinality constraints
         (when (and (ecard--is-cardinality-one-property-p name)
                    existing)
           ;; For *1 properties, replace rather than append
-          (setf (slot-value vc slot) (list prop)))
+          (ecard--set-slot-value vc slot (list prop)))
 
         ;; For other properties, prepend using cons - O(1) instead of O(n)
         (unless (and (ecard--is-cardinality-one-property-p name)
                      existing)
-          (setf (slot-value vc slot) (cons prop existing)))))))
+          (ecard--set-slot-value vc slot (cons prop existing)))))))
 
 (defun ecard-compat--build-ecard-40 (fn properties)
   "Build vCard 4.0 object from FN and PROPERTIES list.
@@ -702,10 +702,10 @@ Returns alist of parameters suitable for vCard 3.0."
 (defun ecard-compat--format-property-30 (prop)
   "Format ecard property PROP into vCard 3.0 line (without folding).
 Returns formatted string."
-  (let* ((group (oref prop group))
-         (name (oref prop name))
-         (parameters (oref prop parameters))
-         (value (oref prop value))
+  (let* ((group (ecard-property-group prop))
+         (name (ecard-property-name prop))
+         (parameters (ecard-property-parameters prop))
+         (value (ecard-property-value prop))
          (is-binary (member name '("PHOTO" "LOGO" "SOUND" "KEY")))
          (actual-value value)
          (extra-params '()))
@@ -754,7 +754,7 @@ into a single property with comma-separated values."
 
     ;; First pass: collect text-list properties
     (dolist (prop props)
-      (let ((name (oref prop name)))
+      (let ((name (ecard-property-name prop)))
         (if (member name text-list-props)
             ;; Accumulate text-list values
             (let ((existing (gethash name pending-text-lists)))
@@ -767,18 +767,18 @@ into a single property with comma-separated values."
     (maphash
      (lambda (name prop-list)
        (if (and (= (length prop-list) 1)
-                (listp (oref (car prop-list) value)))
+                (listp (ecard-property-value (car prop-list))))
            ;; Single property with list value - serialize as-is
            (let ((line (ecard-compat--format-property-30 (car prop-list))))
              (setq lines (append lines (ecard--fold-line line))))
          ;; Multiple properties with single values - combine them
          (let* ((first-prop (car prop-list))
-                (combined-values (mapcar (lambda (p) (oref p value)) prop-list))
+                (combined-values (mapcar (lambda (p) (ecard-property-value p)) prop-list))
                 (combined-prop (ecard-property
                                 :name name
                                 :value combined-values
-                                :parameters (oref first-prop parameters)
-                                :group (oref first-prop group))))
+                                :parameters (ecard-property-parameters first-prop)
+                                :group (ecard-property-group first-prop))))
            (let ((line (ecard-compat--format-property-30 combined-prop)))
              (setq lines (append lines (ecard--fold-line line)))))))
      pending-text-lists)
@@ -809,12 +809,12 @@ Example:
                     adr tel email impp lang geo tz title role logo org member related
                     categories note prodid rev sound uid clientpidmap url
                     key fburl caladruri caluri))
-      (let ((props (slot-value vc slot)))
+      (let ((props (ecard--slot-value vc slot)))
         (when props
           (setq lines (append lines (ecard-compat--serialize-properties-30 props))))))
 
     ;; Serialize extended properties (X-*)
-    (let ((extended (oref vc extended)))
+    (let ((extended (ecard-extended vc)))
       (dolist (entry extended)
         (let ((props (cdr entry)))
           (setq lines (append lines (ecard-compat--serialize-properties-30 props))))))

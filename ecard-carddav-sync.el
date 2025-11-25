@@ -118,7 +118,7 @@
    (local-ecard
     :initarg :local-ecard
     :initform nil
-    :type (or null ecard)
+    ;; Note: :type removed because ecard is now a cl-defstruct, not an EIEIO class
     :documentation "Local version of vCard.")
    (local-etag
     :initarg :local-etag
@@ -128,7 +128,7 @@
    (server-ecard
     :initarg :server-ecard
     :initform nil
-    :type (or null ecard)
+    ;; Note: :type removed because ecard is now a cl-defstruct, not an EIEIO class
     :documentation "Server version of vCard.")
    (server-etag
     :initarg :server-etag

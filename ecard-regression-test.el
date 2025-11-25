@@ -35,8 +35,8 @@ FN:John O'Brien-Family
 N:O'Brien\\;Family;John;;;
 END:VCARD")
          (card (ecard-parse input))
-         (n-prop (car (oref card n)))
-         (n-value (when n-prop (oref n-prop value))))
+         (n-prop (car (ecard-n card)))
+         (n-value (when n-prop (ecard-property-value n-prop))))
     ;; Should parse as 5 components: ["O'Brien;Family", "John", "", "", ""]
     (should (equal (length n-value) 5))
     (should (equal (nth 0 n-value) "O'Brien;Family"))  ; ← FAILS: gets "O'Brien\"
@@ -54,8 +54,8 @@ FN:Test
 ADR:;;123 Main St\\; Suite 100;City;;12345;
 END:VCARD")
          (card (ecard-parse input))
-         (adr-prop (car (oref card adr)))
-         (adr-value (when adr-prop (oref adr-prop value))))
+         (adr-prop (car (ecard-adr card)))
+         (adr-value (when adr-prop (ecard-property-value adr-prop))))
     ;; Component 2 (index 2) should be "123 Main St; Suite 100"
     (should (equal (nth 2 adr-value) "123 Main St; Suite 100"))  ; ← FAILS
     (should (equal (nth 3 adr-value) "City"))))                  ; ← FAILS
@@ -72,8 +72,8 @@ FN:Test
 ORG:Smith\\; Jones LLC;Engineering
 END:VCARD")
          (card (ecard-parse input))
-         (org-prop (car (oref card org)))
-         (org-value (when org-prop (oref org-prop value))))
+         (org-prop (car (ecard-org card)))
+         (org-value (when org-prop (ecard-property-value org-prop))))
     ;; Should parse as ["Smith; Jones LLC", "Engineering"]
     (should (equal (length org-value) 2))
     (should (equal (nth 0 org-value) "Smith; Jones LLC"))  ; ← FAILS
@@ -88,8 +88,8 @@ FN:Test
 GENDER:O;non-binary\\; other
 END:VCARD")
          (card (ecard-parse input))
-         (gender-prop (car (oref card gender)))
-         (gender-value (when gender-prop (oref gender-prop value))))
+         (gender-prop (car (ecard-gender card)))
+         (gender-value (when gender-prop (ecard-property-value gender-prop))))
     ;; Should parse as ["O", "non-binary; other"]
     (should (equal (length gender-value) 2))
     (should (equal (nth 1 gender-value) "non-binary; other"))))  ; ← FAILS
@@ -108,12 +108,12 @@ FN:Test
 TEL;LABEL=\"Office; Main Line\":+1-555-1234
 END:VCARD")
          (card (ecard-parse input))
-         (tel-prop (car (oref card tel)))
-         (params (when tel-prop (oref tel-prop parameters))))
+         (tel-prop (car (ecard-tel card)))
+         (params (when tel-prop (ecard-property-parameters tel-prop))))
     ;; Should have one LABEL parameter with value "Office; Main Line"
     (should params)
     (should (equal (cdr (assoc "LABEL" params)) "Office; Main Line"))  ; ← FAILS
-    (should (equal (oref tel-prop value) "+1-555-1234"))))   ; ← May fail
+    (should (equal (ecard-property-value tel-prop) "+1-555-1234"))))   ; ← May fail
 
 (ert-deftest ecard-bug-2-param-multiple-semicolons ()
   "Test parameter with multiple semicolons in quoted value."
@@ -123,8 +123,8 @@ FN:Test
 EMAIL;NOTE=\"Work; Urgent; Confidential\":john@example.com
 END:VCARD")
          (card (ecard-parse input))
-         (email-prop (car (oref card email)))
-         (params (when email-prop (oref email-prop parameters))))
+         (email-prop (car (ecard-email card)))
+         (params (when email-prop (ecard-property-parameters email-prop))))
     (should (equal (cdr (assoc "NOTE" params)) "Work; Urgent; Confidential"))))  ; ← FAILS
 
 ;;; Bug #3: Colons in Parameter Values
@@ -141,12 +141,12 @@ FN:Test
 TEL;X-AVAILABLE=09:00-17:00:+1-555-1234
 END:VCARD")
          (card (ecard-parse input))
-         (tel-prop (car (oref card tel)))
-         (params (when tel-prop (oref tel-prop parameters))))
+         (tel-prop (car (ecard-tel card)))
+         (params (when tel-prop (ecard-property-parameters tel-prop))))
     ;; Should have X-AVAILABLE=09:00-17:00 parameter
     (should params)
     (should (equal (cdr (assoc "X-AVAILABLE" params)) "09:00-17:00"))  ; ← FAILS
-    (should (equal (oref tel-prop value) "+1-555-1234"))))   ; ← FAILS
+    (should (equal (ecard-property-value tel-prop) "+1-555-1234"))))   ; ← FAILS
 
 (ert-deftest ecard-bug-3-param-uri ()
   "Test parameter with URI value containing colons."
@@ -156,9 +156,9 @@ FN:Test
 PHOTO;MEDIATYPE=image/png;VALUE=uri:http://example.com:8080/photo.png
 END:VCARD")
          (card (ecard-parse input))
-         (photo-prop (car (oref card photo)))
-         (params (when photo-prop (oref photo-prop parameters)))
-         (value (when photo-prop (oref photo-prop value))))
+         (photo-prop (car (ecard-photo card)))
+         (params (when photo-prop (ecard-property-parameters photo-prop)))
+         (value (when photo-prop (ecard-property-value photo-prop))))
     (should (equal (cdr (assoc "MEDIATYPE" params)) "image/png"))
     (should (equal value "http://example.com:8080/photo.png"))))  ; ← FAILS
 
@@ -207,9 +207,9 @@ item1.TEL:+1-555-1111
 ITEM1.X-LABEL:Office
 END:VCARD")
          (card (ecard-parse input))
-         (tel-prop (car (oref card tel)))
-         (tel-group (when tel-prop (oref tel-prop group)))
-         (extended (oref card extended)))
+         (tel-prop (car (ecard-tel card)))
+         (tel-group (when tel-prop (ecard-property-group tel-prop)))
+         (extended (ecard-extended card)))
     ;; TEL should have group (lowercase or uppercase)
     (should tel-group)
     ;; Find X-LABEL in extended properties
@@ -219,7 +219,7 @@ END:VCARD")
            ;; Extended props are alist: (name . (list of props))
            ;; So get first prop with (car (cdr xlabel))
            (xlabel-prop (when xlabel (car (cdr xlabel))))
-           (xlabel-group (when xlabel-prop (oref xlabel-prop group))))
+           (xlabel-group (when xlabel-prop (ecard-property-group xlabel-prop))))
       ;; Both groups should match (case-insensitive)
       (should (string-equal-ignore-case tel-group xlabel-group)))))  ; ← FAILS
 
@@ -309,7 +309,7 @@ Should reject or limit property count."
     (condition-case err
         (let ((card (ecard-parse input)))
           ;; If parsed, should have reasonable limit on email count
-          (should (< (length (oref card email)) 1000)))
+          (should (< (length (ecard-email card)) 1000)))
       (error
        ;; Or should signal clear error about property count
        (should (string-match-p "too many\\|limit" (error-message-string err)))))))
