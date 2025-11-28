@@ -815,5 +815,57 @@ END:VCARD")
     (should (string-match-p "BDAY:19800115" vcard-30))
     (should (string-match-p "UID:urn:uuid:abcd-1234-efgh-5678" vcard-30))))
 
+;;; Regression tests for bug fixes
+
+(ert-deftest ecard-compat-regression-no-colon-error ()
+  "Regression test for 'No value separator colon found' error.
+This error occurred when parsing vCard 3.0 data from Radicale CardDAV
+server that had malformed property lines without colon separators.
+
+The fix ensures that:
+1. ecard--find-value-separator returns nil instead of throwing error
+2. ecard-compat--parse-legacy-property logs warnings for unparseable lines
+3. Parsing continues even with malformed properties"
+  ;; Test vCard with missing colon in property line
+  (let ((vcard-text "BEGIN:VCARD
+VERSION:3.0
+FN:Test User
+N:User;Test;;;
+EMAIL;TYPE=HOME:test@example.com
+TEL;TYPE=HOME
+NOTE:This vCard has a malformed TEL property
+END:VCARD"))
+    ;; Should parse without error
+    (let ((card (ecard-compat-parse vcard-text)))
+      (should card)
+      (should (string= (ecard-get-property-value card 'fn) "Test User"))
+      ;; TEL property should be skipped due to malformed line
+      (should (null (ecard-tel card)))
+      ;; Other properties should parse correctly
+      (should (ecard-email card))
+      (should (string= (ecard-get-property-value card 'email) "test@example.com")))))
+
+(ert-deftest ecard-compat-regression-find-value-separator-no-colons ()
+  "Test that ecard--find-value-separator returns nil when no colons found.
+This is a regression test for the bug where the function threw an error
+instead of returning nil, preventing proper error handling."
+  ;; Test with no colons at all
+  (should (null (ecard--find-value-separator "TYPE=HOME,WORK")))
+  ;; Test with empty string
+  (should (null (ecard--find-value-separator "")))
+  ;; Test with only quoted content (colons in quotes don't count)
+  (should (null (ecard--find-value-separator "TYPE=\"test:value\""))))
+
+(ert-deftest ecard-compat-regression-find-value-separator-with-colons ()
+  "Test that ecard--find-value-separator still works correctly with colons.
+Ensures the fix didn't break existing functionality."
+  ;; Simple case: one colon
+  (should (= (ecard--find-value-separator "TYPE=HOME:john@example.com") 9))
+  ;; Multiple colons in value (URI)
+  (should (= (ecard--find-value-separator "TYPE=work:urn:uuid:12345") 9))
+  ;; No parameters, just colon
+  (let ((pos (ecard--find-value-separator ":value")))
+    (should (= pos 0))))
+
 (provide 'ecard-compat-test)
 ;;; ecard-compat-test.el ends here

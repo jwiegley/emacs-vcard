@@ -31,8 +31,10 @@
 ;;; Code:
 
 (require 'ecard)
+(require 'ecard-compat)
 (require 'ecard-carddav)
 (require 'ecard-carddav-auth)
+(require 'ecard-widget)
 (require 'tabulated-list)
 (require 'widget)
 (require 'wid-edit)
@@ -533,7 +535,7 @@ Fetches full vCard data if not already loaded."
       (message "Loading contact...")
       (condition-case err
           (let ((fetched (ecard-carddav-get-resource ecard-display--addressbook
-                                                       (ecard-url resource))))
+                                                       (oref resource url))))
             (oset resource ecard (oref fetched ecard))
             (oset resource etag (oref fetched etag))
             (message "Loaded contact"))
@@ -616,7 +618,7 @@ Fetches full vCard data if not already loaded."
         (condition-case err
             (progn
               (ecard-carddav-delete-resource ecard-display--addressbook
-                                             (ecard-url resource)
+                                             (oref resource url)
                                              (oref resource etag))
               (ecard-display-contacts-refresh)
               (message "Deleted contact"))
@@ -637,6 +639,7 @@ Fetches full vCard data if not already loaded."
 
 (defvar ecard-display-contact-mode-map
   (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map widget-keymap)
     (define-key map (kbd "C-c C-c") #'ecard-display-contact-save)
     (define-key map (kbd "C-c C-k") #'ecard-display-contact-revert)
     (define-key map (kbd "C-c C-d") #'ecard-display-contact-delete)
@@ -647,11 +650,16 @@ Fetches full vCard data if not already loaded."
 (define-derived-mode ecard-display-contact-mode special-mode "CardDAV Contact"
   "Major mode for viewing and editing a CardDAV contact.
 
+This mode uses Emacs widgets for editing contact fields, similar to
+the customize interface.  Use TAB to move between fields and edit
+values directly.
+
 \\{ecard-display-contact-mode-map}"
   (setq buffer-read-only nil))
 
 (defun ecard-display-contact-detail (resource)
-  "Display detail view for RESOURCE."
+  "Display detail view for RESOURCE using widget-based editing.
+The contact is displayed in a customize-like interface with editable fields."
   (let* ((ecard-obj (oref resource ecard))
          (fn (ecard-display--get-fn ecard-obj))
          (buffer (get-buffer-create (format "*CardDAV Contact: %s*" fn))))
@@ -661,9 +669,15 @@ Fetches full vCard data if not already loaded."
             ecard-display--addressbook (oref resource addressbook)
             ecard-display--original-ecard (ecard-display--clone-ecard ecard-obj)
             ecard-display--modified nil)
-      (ecard-display-contact--render resource)
+      ;; Use widget-based rendering
+      (ecard-widget-create ecard-obj #'ecard-display-contact--on-change)
       (goto-char (point-min)))
     (switch-to-buffer buffer)))
+
+(defun ecard-display-contact--on-change ()
+  "Called when any widget value changes in the contact editor."
+  (setq ecard-display--modified (ecard-widget-modified-p))
+  (force-mode-line-update))
 
 (defun ecard-display-contact--render (resource)
   "Render contact detail form for RESOURCE."
@@ -802,31 +816,48 @@ Fetches full vCard data if not already loaded."
     (cdr (assoc param-name params))))
 
 (defun ecard-display-contact-save ()
-  "Save changes to the current contact."
+  "Save changes to the current contact.
+Extracts updated values from the widget form and saves to the server."
   (interactive)
   (unless ecard-display--resource
     (user-error "No contact associated with this buffer"))
   (message "Saving contact...")
   (condition-case err
       (let* ((resource ecard-display--resource)
-             (ecard-obj (oref resource ecard))
-             (url (ecard-url resource))
+             ;; Extract updated ecard from widgets
+             (new-ecard (ecard-widget-get-value))
+             (url (oref resource url))
              (etag (oref resource etag)))
-        (ecard-carddav-put-ecard ecard-display--addressbook url ecard-obj etag)
+        ;; Update the resource with new ecard
+        (oset resource ecard new-ecard)
+        ;; Save to server
+        (let ((result (ecard-carddav-put-ecard ecard-display--addressbook url new-ecard etag)))
+          ;; Update etag from server response
+          (when result
+            (oset resource etag (oref result etag))))
         (setq ecard-display--modified nil
-              ecard-display--original-ecard (ecard-display--clone-ecard ecard-obj))
+              ecard-display--original-ecard (ecard-display--clone-ecard new-ecard))
+        ;; Update widget state
+        (setq ecard-widget--ecard new-ecard)
         (message "Saved contact"))
+    (ecard-carddav-conflict-error
+     (message "Save conflict: contact was modified on server. Please refresh and try again."))
     (error
      (message "Failed to save contact: %s" (error-message-string err)))))
 
 (defun ecard-display-contact-revert ()
-  "Revert changes to the current contact."
+  "Revert changes to the current contact.
+Re-renders the widget form with the original values."
   (interactive)
   (when (or (not ecard-display--modified)
             (yes-or-no-p "Discard all changes? "))
     (when ecard-display--original-ecard
-      (oset ecard-display--resource ecard ecard-display--original-ecard)
-      (ecard-display-contact--render ecard-display--resource)
+      (oset ecard-display--resource ecard
+            (ecard-display--clone-ecard ecard-display--original-ecard))
+      ;; Re-create widgets with original values
+      (ecard-widget-create ecard-display--original-ecard
+                           #'ecard-display-contact--on-change)
+      (goto-char (point-min))
       (setq ecard-display--modified nil)
       (message "Reverted changes"))))
 
@@ -842,7 +873,7 @@ Fetches full vCard data if not already loaded."
       (condition-case err
           (progn
             (ecard-carddav-delete-resource ecard-display--addressbook
-                                           (ecard-url ecard-display--resource)
+                                           (oref ecard-display--resource url)
                                            (oref ecard-display--resource etag))
             (message "Deleted contact")
             (kill-buffer)
@@ -855,11 +886,13 @@ Fetches full vCard data if not already loaded."
          (message "Failed to delete contact: %s" (error-message-string err)))))))
 
 (defun ecard-display-contact-quit ()
-  "Quit the contact detail buffer."
+  "Quit the contact detail buffer.
+Prompts to save if there are unsaved changes."
   (interactive)
-  (when (or (not ecard-display--modified)
-            (yes-or-no-p "Discard unsaved changes? "))
-    (quit-window t)))
+  (let ((modified (or ecard-display--modified (ecard-widget-modified-p))))
+    (when (or (not modified)
+              (yes-or-no-p "Discard unsaved changes? "))
+      (quit-window t))))
 
 ;;; Helper functions
 
@@ -916,12 +949,14 @@ Returns a plist suitable for use in ecard-display."
   (cond
    ;; Already an ecard-carddav-server object - extract info
    ((ecard-carddav-server-p config)
-    (let ((url (ecard-url config))
-          (auth (oref config auth)))
+    (let* ((url (oref config url))
+           (auth (oref config auth))
+           ;; Auth might be a function that returns the auth object
+           (auth-obj (if (functionp auth) (funcall auth) auth)))
       (list :name (or url "Unnamed Server")
             :url url
-            :username (when auth (oref auth username))
-            :password (when auth (oref auth password))
+            :username (when auth-obj (oref auth-obj username))
+            :password (when auth-obj (oref auth-obj password))
             :server-object config)))
 
    ;; Plist configuration - return as-is
@@ -958,10 +993,16 @@ If CONFIG is a plist, create a new ecard-carddav-server object."
 
 (defun ecard-display--clone-ecard (ecard-obj)
   "Create a deep copy of ECARD-OBJ."
-  ;; For now, serialize and re-parse to get a clean copy
-  (if ecard-obj
-      (ecard-parse (ecard-serialize ecard-obj))
-    nil))
+  ;; Serialize and re-parse to get a clean copy
+  ;; Try strict parser first, fall back to lenient parser with suppressed warnings
+  (when ecard-obj
+    (let ((text (ecard-serialize ecard-obj)))
+      (condition-case nil
+          (ecard-parse text)
+        (ecard-parse-error
+         ;; Fall back to lenient parser, suppressing warnings about binary data
+         (let ((inhibit-message t))
+           (ecard-compat-parse text)))))))
 
 (defun ecard-display--generate-uuid ()
   "Generate a simple UUID-like string."

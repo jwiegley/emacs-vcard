@@ -48,6 +48,7 @@
 
 (require 'cl-lib)
 (require 'eieio)
+(require 'ecard-compat)
 (require 'ecard)
 (require 'ecard-carddav)
 (require 'ecard-carddav-auth)
@@ -488,7 +489,7 @@ BASE-URL is used to resolve relative URLs."
               (setq etag (string-trim etag "\"" "\"")))
 
             (condition-case err
-                (let ((ecard-obj (ecard-parse ecard-data)))
+                (let ((ecard-obj (ecard-compat-parse ecard-data)))
                   (ecard-carddav-sync--save-to-cache sync path ecard-obj etag))
               (error
                (message "Warning: Failed to parse vCard at %s: %s" path err)))))))))

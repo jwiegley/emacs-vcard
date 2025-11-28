@@ -521,10 +521,9 @@ For parameter values with colons (malformed), the separator is after all param c
     (setq colon-positions (nreverse colon-positions))
 
     ;; If no colons found, return nil
-    (when (null colon-positions)
-      (error "No value separator colon found"))
-
-    ;; Strategy: Determine if we have evenly-spaced colons (malformed param value)
+    (if (null colon-positions)
+        nil
+      ;; Strategy: Determine if we have evenly-spaced colons (malformed param value)
     ;; or a clear separator pattern (normal case with URI value)
     ;; Malformed: X-AVAILABLE=09:00-17:00 has ALL gaps small (< 10 chars)
     ;; Normal: TYPE=spouse:urn:uuid:foo has large gap before first colon
@@ -569,7 +568,7 @@ For parameter values with colons (malformed), the separator is after all param c
                       ;; Gaps are similar - malformed case
                       (setq result (car (last colons-after-equals)))))))))))
       ;; Fallback: if still no result, use first colon
-      (or result (car colon-positions)))))
+      (or result (car colon-positions))))))
 
 (defun ecard--parse-property-line (line)
   "Parse a single vCard property LINE.
@@ -841,16 +840,19 @@ DoS Protection:
        (in-ecard
         ;; Skip empty or whitespace-only lines
         (unless (string-match-p "^[ \t]*$" line)
-          ;; DoS protection: limit property count
-          (when (>= property-count max-property-count)
-            (signal 'ecard-validation-error
-                    (list (format "Too many properties (max %d allowed for DoS protection)"
-                                  max-property-count))))
-          (setq property-count (1+ property-count))
+          ;; Skip lines with binary data (non-printable control characters)
+          ;; These could be from corrupted data or improperly encoded PHOTO/LOGO values
+          (unless (string-match-p "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]" line)
+            ;; DoS protection: limit property count
+            (when (>= property-count max-property-count)
+              (signal 'ecard-validation-error
+                      (list (format "Too many properties (max %d allowed for DoS protection)"
+                                    max-property-count))))
+            (setq property-count (1+ property-count))
 
-          (let ((prop-plist (ecard--parse-property-line line)))
-            (let ((prop-name (plist-get prop-plist :name))
-                  (prop-value (plist-get prop-plist :value)))
+            (let* ((prop-plist (ecard--parse-property-line line))
+                   (prop-name (plist-get prop-plist :name))
+                   (prop-value (plist-get prop-plist :value)))
 
               ;; DoS protection: limit property value length
               (let ((value-length (if (listp prop-value)

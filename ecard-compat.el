@@ -307,9 +307,13 @@ Returns alist of parameters."
 
 (defun ecard-compat--parse-legacy-property (line version)
   "Parse a legacy vCard property LINE for VERSION.
-VERSION is \\='v21 or \\='v30.
-Returns plist with :name, :params, :value, :encoding, :charset."
-  (when (string-match "^\\(?:\\([a-zA-Z0-9_-]+\\)\\.\\)?\\([^:;]+\\)\\(?:;\\([^:]*\\)\\)?:\\(.*\\)$" line)
+VERSION is \\='v21 or \\='v30 or \\='v40 (for fallback parsing).
+Returns plist with :name, :params, :value, :encoding, :charset.
+Returns nil for lines that don't match property format (including binary data)."
+  ;; Skip lines that appear to contain binary data (non-printable characters)
+  ;; These could be from corrupted data or improperly encoded PHOTO/LOGO values
+  (when (and (not (string-match-p "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]" line))
+             (string-match "^\\(?:\\([a-zA-Z0-9_-]+\\)\\.\\)?\\([^:;]+\\)\\(?:;\\([^:]*\\)\\)?:\\(.*\\)$" line))
     (let* ((group (match-string 1 line))
            (prop-name (upcase (match-string 2 line)))
            (params-string (match-string 3 line))
@@ -505,8 +509,11 @@ Returns ecard object."
         (setq in-ecard nil))
 
        ((and in-ecard (not (string-match-p "^\\s-*$" line)))
-        (when-let ((parsed (ecard-compat--parse-legacy-property line version)))
-          (push parsed properties)))))
+        (let ((parsed (ecard-compat--parse-legacy-property line version)))
+          (if parsed
+              (push parsed properties)
+            ;; Log warning for unparseable lines
+            (message "Warning: Could not parse vCard line: %s" line))))))
 
     ;; Convert to vCard 4.0
     (ecard-compat--properties-to-ecard-40 (nreverse properties) version)))
@@ -532,12 +539,23 @@ Returns ecard object."
   "Parse vCard TEXT of any version (2.1, 3.0, 4.0) and convert to vCard 4.0.
 Auto-detects version and applies appropriate conversion.
 Returns ecard object.
-Signals `ecard-compat-version-error' if version is unknown or missing."
+Signals `ecard-compat-version-error' if version is unknown or missing.
+
+For vCard 4.0, if parsing fails with the strict 4.0 parser, falls back
+to trying the 3.0 legacy parser which is more lenient with malformed data."
   (let ((version (ecard-compat--detect-version text)))
     (cond
      ((eq version 'v21) (ecard-compat-parse-21 text))
      ((eq version 'v30) (ecard-compat-parse-30 text))
-     ((eq version 'v40) (ecard-parse text))
+     ((eq version 'v40)
+      ;; Try strict 4.0 parser first, fall back to lenient 3.0 parser if it fails
+      (condition-case err
+          (ecard-parse text)
+        (ecard-parse-error
+         ;; Log warning and try legacy parser
+         (message "Warning: vCard 4.0 parser failed (%s), trying legacy parser"
+                  (error-message-string err))
+         (ecard-compat--parse-legacy-ecard text 'v40))))
      (t (signal 'ecard-compat-version-error
                '("Unknown or missing vCard VERSION"))))))
 

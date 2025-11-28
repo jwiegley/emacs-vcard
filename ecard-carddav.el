@@ -197,6 +197,50 @@ like Radicale. This can be overridden per-addressbook.")
     :documentation "List of addressbook objects on this server."))
   "Represents a CardDAV server connection.")
 
+;;;###autoload
+(defun ecard-carddav-server-create (&rest args)
+  "Create CardDAV server connection from ARGS.
+
+ARGS is a plist with keys:
+  :url STRING - Base URL of CardDAV server (required)
+  :auth AUTH-OBJ-OR-FUNCTION - Authentication object or function (required)
+
+The :auth parameter can be either:
+  - An ecard-carddav-auth object (created with ecard-carddav-auth-*-create)
+  - A function that returns an ecard-carddav-auth object when called
+
+Using a function allows for dynamic credential retrieval, such as:
+  - Fetching from auth-source
+  - OAuth token refresh
+  - Password manager integration
+  - Prompting user for credentials
+
+Examples:
+  ;; Static auth object
+  (ecard-carddav-server-create
+   :url \"https://carddav.example.com\"
+   :auth (ecard-carddav-auth-basic-create
+          :username \"user\"
+          :password \"secret\"))
+
+  ;; Dynamic auth function
+  (ecard-carddav-server-create
+   :url \"https://carddav.example.com\"
+   :auth (lambda ()
+           (ecard-carddav-auth-basic-create
+            :username (read-string \"Username: \")
+            :password (read-passwd \"Password: \"))))"
+  (let ((url (plist-get args :url))
+        (auth (plist-get args :auth)))
+    (unless url
+      (signal 'ecard-carddav-error '("Server URL required")))
+    (unless auth
+      (signal 'ecard-carddav-error '("Authentication required")))
+    ;; Validate auth - if it's a function, call it once to validate
+    (let ((auth-obj (if (functionp auth) (funcall auth) auth)))
+      (ecard-carddav-auth-ensure-valid auth-obj))
+    (apply #'ecard-carddav-server args)))
+
 (defclass ecard-carddav-addressbook ()
   ((server
     :initarg :server
@@ -1023,52 +1067,6 @@ Returns list of `ecard-carddav-resource' objects with ecard data populated."
                 (error
                  (message "Failed to parse vCard at %s: %s" href (error-message-string err)))))))))
     (nreverse resources)))
-
-;;; Server creation
-
-;;;###autoload
-(defun ecard-carddav-server-create (&rest args)
-  "Create CardDAV server connection from ARGS.
-
-ARGS is a plist with keys:
-  :url STRING - Base URL of CardDAV server (required)
-  :auth AUTH-OBJ-OR-FUNCTION - Authentication object or function (required)
-
-The :auth parameter can be either:
-  - An ecard-carddav-auth object (created with ecard-carddav-auth-*-create)
-  - A function that returns an ecard-carddav-auth object when called
-
-Using a function allows for dynamic credential retrieval, such as:
-  - Fetching from auth-source
-  - OAuth token refresh
-  - Password manager integration
-  - Prompting user for credentials
-
-Examples:
-  ;; Static auth object
-  (ecard-carddav-server-create
-   :url \"https://carddav.example.com\"
-   :auth (ecard-carddav-auth-basic-create
-          :username \"user\"
-          :password \"secret\"))
-
-  ;; Dynamic auth function
-  (ecard-carddav-server-create
-   :url \"https://carddav.example.com\"
-   :auth (lambda ()
-           (ecard-carddav-auth-basic-create
-            :username (read-string \"Username: \")
-            :password (read-passwd \"Password: \"))))"
-  (let ((url (plist-get args :url))
-        (auth (plist-get args :auth)))
-    (unless url
-      (signal 'ecard-carddav-error '("Server URL required")))
-    (unless auth
-      (signal 'ecard-carddav-error '("Authentication required")))
-    ;; Validate auth - if it's a function, call it once to validate
-    (let ((auth-obj (if (functionp auth) (funcall auth) auth)))
-      (ecard-carddav-auth-ensure-valid auth-obj))
-    (apply #'ecard-carddav-server args)))
 
 (provide 'ecard-carddav)
 ;;; ecard-carddav.el ends here

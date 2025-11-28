@@ -14,6 +14,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'ecard-display)
+(require 'ecard-widget)
 
 ;;; Test server list buffer
 
@@ -1063,6 +1064,135 @@ not all resources with some having placeholder names."
         ;; But should still display other content
         (should (string-match-p "Full Name:" content))
         (should (string-match-p "Test Person" content))))))
+
+;;; Widget integration tests
+
+(ert-deftest ecard-display-test-widget-contact-detail ()
+  "Test contact detail uses widget-based editing."
+  (let* ((fn-prop (ecard-property :name "FN" :value "Widget Test User"))
+         (email-prop (ecard-property
+                      :name "EMAIL"
+                      :parameters '(("TYPE" . "work"))
+                      :value "widget@example.com"))
+         (ecard-obj (ecard :fn (list fn-prop) :email (list email-prop)))
+         (server (ecard-carddav-server))
+         (addressbook (ecard-carddav-addressbook :server server
+                                                  :url "https://test.example.com/"))
+         (resource (ecard-carddav-resource
+                    :addressbook addressbook
+                    :url "https://test.example.com/widget-test.vcf"
+                    :path "/widget-test.vcf"
+                    :ecard ecard-obj
+                    :etag "etag-1")))
+    ;; Display the contact (which now uses widgets)
+    (ecard-display-contact-detail resource)
+    (let ((buffer (get-buffer "*CardDAV Contact: Widget Test User*")))
+      (unwind-protect
+          (with-current-buffer buffer
+            ;; Verify widget buffer state
+            (should ecard-widget--widgets)
+            (should ecard-widget--ecard)
+            ;; Verify content
+            (let ((content (buffer-string)))
+              (should (string-match-p "Widget Test User" content))
+              (should (string-match-p "widget@example.com" content))
+              ;; Should have section headings
+              (should (string-match-p "Name" content))
+              (should (string-match-p "Email" content))))
+        (when buffer (kill-buffer buffer))))))
+
+(ert-deftest ecard-display-test-widget-modification-detection ()
+  "Test that widget modification is detected correctly."
+  (let* ((ecard-obj (ecard-create :fn "Original Name"))
+         (server (ecard-carddav-server))
+         (addressbook (ecard-carddav-addressbook :server server))
+         (resource (ecard-carddav-resource
+                    :addressbook addressbook
+                    :url "https://test.example.com/mod-test.vcf"
+                    :path "/mod-test.vcf"
+                    :ecard ecard-obj)))
+    (ecard-display-contact-detail resource)
+    (let ((buffer (get-buffer "*CardDAV Contact: Original Name*")))
+      (unwind-protect
+          (with-current-buffer buffer
+            ;; Initially not modified
+            (should-not (ecard-widget-modified-p))
+            ;; Modify the FN widget
+            (let ((fn-widget (cdr (assq 'fn ecard-widget--widgets))))
+              (when fn-widget
+                (widget-value-set fn-widget "Modified Name")))
+            ;; Should now be modified
+            (should (ecard-widget-modified-p)))
+        (when buffer (kill-buffer buffer))))))
+
+(ert-deftest ecard-display-test-widget-value-extraction ()
+  "Test that widget values are correctly extracted for saving."
+  (let* ((ecard-obj (ecard-create :fn "Test User"))
+         (server (ecard-carddav-server))
+         (addressbook (ecard-carddav-addressbook :server server))
+         (resource (ecard-carddav-resource
+                    :addressbook addressbook
+                    :url "https://test.example.com/extract-test.vcf"
+                    :path "/extract-test.vcf"
+                    :ecard ecard-obj)))
+    (ecard-display-contact-detail resource)
+    (let ((buffer (get-buffer "*CardDAV Contact: Test User*")))
+      (unwind-protect
+          (with-current-buffer buffer
+            ;; Modify multiple fields
+            (let ((fn-w (cdr (assq 'fn ecard-widget--widgets)))
+                  (given-w (cdr (assq 'n-given ecard-widget--widgets)))
+                  (family-w (cdr (assq 'n-family ecard-widget--widgets)))
+                  (org-w (cdr (assq 'org ecard-widget--widgets))))
+              (when fn-w (widget-value-set fn-w "Updated User"))
+              (when given-w (widget-value-set given-w "Updated"))
+              (when family-w (widget-value-set family-w "User"))
+              (when org-w (widget-value-set org-w "Test Company")))
+            ;; Extract values
+            (let ((result (ecard-widget-get-value)))
+              (should (ecard-p result))
+              (should (equal (ecard-property-value (car (ecard-fn result)))
+                             "Updated User"))
+              (let ((n-val (ecard-property-value (car (ecard-n result)))))
+                (should (equal (nth 0 n-val) "User"))   ; family
+                (should (equal (nth 1 n-val) "Updated"))) ; given
+              (should (equal (ecard-property-value (car (ecard-org result)))
+                             "Test Company"))))
+        (when buffer (kill-buffer buffer))))))
+
+(ert-deftest ecard-display-test-widget-save-integration ()
+  "Test saving contact through widget interface with mock server."
+  (unwind-protect
+      (progn
+        (ecard-display-test--setup-mock-environment)
+        (let ((server ecard-display-test--real-server))
+          (ecard-carddav-discover-addressbooks server)
+          (let ((addressbook (car (oref server addressbooks))))
+            (ecard-carddav-list-resources addressbook)
+            ;; Get first resource
+            (let ((resource (car (oref addressbook resources))))
+              (when resource
+                ;; Fetch full data
+                (unless (oref resource ecard)
+                  (let ((fetched (ecard-carddav-get-resource addressbook (oref resource url))))
+                    (oset resource ecard (oref fetched ecard))
+                    (oset resource etag (oref fetched etag))))
+                ;; Open in widget editor
+                (ecard-display-contact-detail resource)
+                (let ((buffer (get-buffer (format "*CardDAV Contact: %s*"
+                                                  (ecard-display--get-fn (oref resource ecard))))))
+                  (unwind-protect
+                      (with-current-buffer buffer
+                        ;; Modify name
+                        (let ((fn-w (cdr (assq 'fn ecard-widget--widgets))))
+                          (when fn-w
+                            (widget-value-set fn-w "Widget Modified Name")))
+                        ;; Save (should work with mock server)
+                        (ecard-display-contact-save)
+                        ;; Verify save succeeded
+                        (should-not ecard-display--modified))
+                    (when buffer (kill-buffer buffer)))))))))
+    (ecard-display-test--cleanup-mock-environment)))
 
 (provide 'ecard-display-test)
 ;;; ecard-display-test.el ends here
